@@ -1,0 +1,10 @@
+{
+  "name": "jimmys-big-load",
+  "author": "Bellyokelly-ship-it",
+  "flags": ["root"],
+  "publish": {
+    "descripton": "Ultimate Steam Deck optimization — PowerShift, LSFG auto-tuning, thermal intelligence, battery arc, Proton manager, Viture XR support, community profiles and more.",
+    "tagline": "Jimmy's Big Load — Maximum performance, minimum fuss.",
+    "tags": ["performance", "tdp", "lsfg", "proton", "xr", "profiles", "battery"]
+  }
+}

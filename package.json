@@ -1,0 +1,28 @@
+{
+  "name": "jimmys-big-load",
+  "version": "0.3.0",
+  "description": "Ultimate Steam Deck optimization plugin",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^24.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-replace": "^5.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "@types/react": "^18.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "decky-frontend-lib": "^3.0.0",
+    "eslint": "^8.0.0",
+    "rollup": "^3.0.0",
+    "rollup-plugin-import-assets": "^1.0.0",
+    "tslib": "^2.5.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-dom": "*"
+  }
+}

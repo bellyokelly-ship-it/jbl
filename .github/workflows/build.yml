@@ -1,0 +1,59 @@
+name: Build JBL Plugin
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Node dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Python dependencies
+        run: pip install aiohttp
+
+      - name: Package plugin
+        run: |
+          mkdir -p release/jimmys-big-load
+          cp -r dist modules defaults assets plugin.json package.json release/jimmys-big-load/
+          cp main.py release/jimmys-big-load/
+          cd release
+          zip -r jimmys-big-load.zip jimmys-big-load/
+          echo "✅ Package ready: jimmys-big-load.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: jimmys-big-load
+          path: release/jimmys-big-load.zip
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v0.3.0-${{ github.run_number }}
+          name: "Jimmy's Big Load v0.3.0 Build ${{ github.run_number }}"
+          files: release/jimmys-big-load.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
