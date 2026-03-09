@@ -1,7 +1,4 @@
-// ============================================================
-// JBL — Community Panel
-// ============================================================
-import { VFC, useState } from "react";
+import React, { VFC, useState } from "react";
 import { PanelSection, PanelSectionRow, ButtonItem, TextField } from "decky-frontend-lib";
 
 export const CommunityPanel: VFC<{ jbl: any }> = ({ jbl }) => {
@@ -32,9 +29,12 @@ export const CommunityPanel: VFC<{ jbl: any }> = ({ jbl }) => {
     <>
       <PanelSection title="Community Sync">
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={syncAll} disabled={syncing}>
-            {syncing ? "🔄 Syncing..." : "🌐 Sync All Profiles"}
-          </ButtonItem>
+          <ButtonItem
+            layout="below"
+            onClick={syncAll}
+            disabled={syncing}
+            label={syncing ? "🔄 Syncing..." : "🌐 Sync All Profiles"}
+          />
         </PanelSectionRow>
         {status && (
           <PanelSectionRow>
@@ -48,13 +48,16 @@ export const CommunityPanel: VFC<{ jbl: any }> = ({ jbl }) => {
           <TextField
             label="Game name or App ID"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={(e: any) => setQuery(e.target.value)}
           />
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={search} disabled={searching}>
-            {searching ? "🔍 Searching..." : "🔍 Search"}
-          </ButtonItem>
+          <ButtonItem
+            layout="below"
+            onClick={search}
+            disabled={searching}
+            label={searching ? "🔍 Searching..." : "🔍 Search"}
+          />
         </PanelSectionRow>
         {results.length > 0 && results.map((r, i) => (
           <PanelSectionRow key={i}>

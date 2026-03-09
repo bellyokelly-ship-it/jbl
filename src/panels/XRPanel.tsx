@@ -1,8 +1,8 @@
 // ============================================================
 // JBL — XR Panel (Viture Luma Ultra + Others)
 // ============================================================
-import { VFC, useState } from "react";
-import { PanelSection, PanelSectionRow, ButtonItem, ToggleField } from "decky-frontend-lib";
+import React, { VFC, useState } from "react";
+import { PanelSection, PanelSectionRow, ButtonItem } from "decky-frontend-lib";
 
 const XR_MODES = [
   { id: "cinema",      label: "🎬 Cinema",      desc: "60Hz, stable, battery saver" },
@@ -56,9 +56,8 @@ export const XRPanel: VFC<{ jbl: any }> = ({ jbl }) => {
             layout="below"
             onClick={detect}
             disabled={detecting}
-          >
-            {detecting ? "🔍 Detecting..." : "🔍 Detect XR Device"}
-          </ButtonItem>
+            label={detecting ? "🔍 Detecting..." : "🔍 Detect XR Device"}
+          />
         </PanelSectionRow>
       </PanelSection>
 
@@ -66,20 +65,24 @@ export const XRPanel: VFC<{ jbl: any }> = ({ jbl }) => {
         <PanelSection title="XR Mode">
           {XR_MODES.map(m => (
             <PanelSectionRow key={m.id}>
-              <ButtonItem
-                layout="below"
+              <button
                 disabled={busy}
                 onClick={() => setMode(m.id)}
                 style={{
+                  width: "100%",
+                  padding: "8px 12px",
                   background: xr?.mode === m.id ? "#9c27b0" : "#2a2a2a",
                   color: "#fff",
                   borderRadius: "6px",
-                  marginBottom: "4px"
+                  border: "none",
+                  cursor: "pointer",
+                  marginBottom: "4px",
+                  textAlign: "left"
                 }}
               >
                 <div style={{ fontWeight: "bold" }}>{m.label}</div>
                 <div style={{ fontSize: "11px", opacity: 0.7 }}>{m.desc}</div>
-              </ButtonItem>
+              </button>
             </PanelSectionRow>
           ))}
         </PanelSection>

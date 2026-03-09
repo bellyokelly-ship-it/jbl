@@ -7,12 +7,17 @@ export default {
   input: 'src/index.tsx',
   output: {
     file: 'dist/index.js',
-    format: 'esm',
-    exports: 'default'
+    format: 'iife',
+    name: 'JimmysBigLoad',
+    globals: {
+      react: 'SP_REACT',
+      'react-dom': 'SP_REACTDOM',
+      'decky-frontend-lib': 'DFL'
+    }
   },
   external: ['react', 'react-dom', 'decky-frontend-lib'],
   plugins: [
-    resolve(),
+    resolve({ browser: true }),
     commonjs(),
     replace({
       preventAssignment: true,

@@ -2,26 +2,25 @@
 // JBL — Jimmy's Big Load
 // Main Entry Point
 // ============================================================
+import React, { VFC, useState } from "react";
 import {
   definePlugin,
   PanelSection,
   PanelSectionRow,
   ServerAPI,
   staticClasses,
-  Router,
 } from "decky-frontend-lib";
-import { VFC, useState, useEffect } from "react";
 import { FaBolt } from "react-icons/fa";
-import { StatusPanel } from "./panels/StatusPanel";
+import { StatusPanel }     from "./panels/StatusPanel";
 import { PowerShiftPanel } from "./panels/PowerShiftPanel";
-import { LSFGPanel } from "./panels/LSFGPanel";
-import { ProfilePanel } from "./panels/ProfilePanel";
-import { CommunityPanel } from "./panels/CommunityPanel";
-import { AnalyticsPanel } from "./panels/AnalyticsPanel";
-import { HealthPanel } from "./panels/HealthPanel";
-import { XRPanel } from "./panels/XRPanel";
-import { ProtonPanel } from "./panels/ProtonPanel";
-import { useJBL } from "./hooks/useJBL";
+import { LSFGPanel }       from "./panels/LSFGPanel";
+import { ProfilePanel }    from "./panels/ProfilePanel";
+import { CommunityPanel }  from "./panels/CommunityPanel";
+import { AnalyticsPanel }  from "./panels/AnalyticsPanel";
+import { HealthPanel }     from "./panels/HealthPanel";
+import { XRPanel }         from "./panels/XRPanel";
+import { ProtonPanel }     from "./panels/ProtonPanel";
+import { useJBL }          from "./hooks/useJBL";
 
 const JBLPlugin: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   const jbl = useJBL(serverAPI);
@@ -41,7 +40,6 @@ const JBLPlugin: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
 
   return (
     <div style={{ padding: "8px" }}>
-      {/* Header */}
       <PanelSection>
         <PanelSectionRow>
           <div style={{
@@ -58,7 +56,6 @@ const JBLPlugin: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
         </PanelSectionRow>
       </PanelSection>
 
-      {/* Tab Bar */}
       <div style={{
         display: "flex",
         flexWrap: "wrap",
@@ -85,7 +82,6 @@ const JBLPlugin: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
         ))}
       </div>
 
-      {/* Tab Content */}
       {activeTab === "status"     && <StatusPanel jbl={jbl} />}
       {activeTab === "powershift" && <PowerShiftPanel jbl={jbl} />}
       {activeTab === "lsfg"       && <LSFGPanel jbl={jbl} />}

@@ -1,8 +1,8 @@
 // ============================================================
 // JBL — PowerShift Panel
 // ============================================================
-import { VFC, useState } from "react";
-import { PanelSection, PanelSectionRow, ButtonItem } from "decky-frontend-lib";
+import React, { VFC, useState } from "react";
+import { PanelSection, PanelSectionRow } from "decky-frontend-lib";
 
 const MODES = [
   { id: "performance", label: "🔥 Performance", desc: "Max TDP, Max FPS" },
@@ -19,6 +19,7 @@ const CONTEXTS = [
 export const PowerShiftPanel: VFC<{ jbl: any }> = ({ jbl }) => {
   const { state, call, refresh } = jbl;
   const [busy, setBusy] = useState(false);
+  const current = state.powershift;
 
   const setMode = async (mode: string) => {
     setBusy(true);
@@ -34,27 +35,29 @@ export const PowerShiftPanel: VFC<{ jbl: any }> = ({ jbl }) => {
     setBusy(false);
   };
 
-  const current = state.powershift;
-
   return (
     <>
       <PanelSection title="PowerShift Mode">
         {MODES.map(m => (
           <PanelSectionRow key={m.id}>
-            <ButtonItem
-              layout="below"
+            <button
               disabled={busy}
               onClick={() => setMode(m.id)}
               style={{
+                width: "100%",
+                padding: "8px 12px",
                 background: current?.mode === m.id ? "#f5a623" : "#2a2a2a",
                 color: current?.mode === m.id ? "#000" : "#fff",
                 borderRadius: "6px",
-                marginBottom: "4px"
+                border: "none",
+                cursor: "pointer",
+                marginBottom: "4px",
+                textAlign: "left"
               }}
             >
               <div style={{ fontWeight: "bold" }}>{m.label}</div>
               <div style={{ fontSize: "11px", opacity: 0.7 }}>{m.desc}</div>
-            </ButtonItem>
+            </button>
           </PanelSectionRow>
         ))}
       </PanelSection>

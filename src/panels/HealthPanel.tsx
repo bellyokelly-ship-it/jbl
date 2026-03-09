@@ -1,7 +1,7 @@
 // ============================================================
 // JBL — Health Panel
 // ============================================================
-import { VFC, useState } from "react";
+import React, { VFC, useState } from "react";
 import { PanelSection, PanelSectionRow, ButtonItem } from "decky-frontend-lib";
 
 export const HealthPanel: VFC<{ jbl: any }> = ({ jbl }) => {
@@ -22,12 +22,14 @@ export const HealthPanel: VFC<{ jbl: any }> = ({ jbl }) => {
     <>
       <PanelSection title="Diagnostics">
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={run} disabled={running}>
-            {running ? "🩺 Running diagnostics..." : "🩺 Run Diagnostics"}
-          </ButtonItem>
+          <ButtonItem
+            layout="below"
+            onClick={run}
+            disabled={running}
+            label={running ? "🩺 Running diagnostics..." : "🩺 Run Diagnostics"}
+          />
         </PanelSectionRow>
       </PanelSection>
-
       {diag && (
         <PanelSection title="Results">
           <PanelSectionRow>

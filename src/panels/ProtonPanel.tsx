@@ -1,8 +1,8 @@
 // ============================================================
 // JBL — Proton Panel
 // ============================================================
-import { VFC, useState, useEffect } from "react";
-import { PanelSection, PanelSectionRow, ButtonItem, ToggleField } from "decky-frontend-lib";
+import React, { VFC, useState } from "react";
+import { PanelSection, PanelSectionRow, ButtonItem } from "decky-frontend-lib";
 
 export const ProtonPanel: VFC<{ jbl: any }> = ({ jbl }) => {
   const { state, call, refresh } = jbl;
@@ -50,9 +50,12 @@ export const ProtonPanel: VFC<{ jbl: any }> = ({ jbl }) => {
 
       <PanelSection title="Available Releases">
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={fetchReleases} disabled={loading}>
-            {loading ? "🔄 Fetching..." : "🔄 Check Latest Releases"}
-          </ButtonItem>
+          <ButtonItem
+            layout="below"
+            onClick={fetchReleases}
+            disabled={loading}
+            label={loading ? "🔄 Fetching..." : "🔄 Check Latest Releases"}
+          />
         </PanelSectionRow>
         {releases.map(r => (
           <PanelSectionRow key={r.tag}>
