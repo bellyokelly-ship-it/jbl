@@ -35,7 +35,11 @@ jobs:
       - name: Package plugin
         run: |
           mkdir -p release/jimmys-big-load
-          cp -r dist modules defaults assets plugin.json package.json release/jimmys-big-load/
+          cp -r dist release/jimmys-big-load/
+          cp -r modules release/jimmys-big-load/
+          cp -r defaults release/jimmys-big-load/
+          [ -d assets ] && cp -r assets release/jimmys-big-load/ || echo "⚠️ No assets folder, skipping"
+          cp plugin.json package.json release/jimmys-big-load/
           cp main.py release/jimmys-big-load/
           cd release
           zip -r jimmys-big-load.zip jimmys-big-load/
