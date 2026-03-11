@@ -95,7 +95,7 @@ const JBLPlugin: VFC<{ serverAPI: ServerAPI }> = ({ serverAPI }) => {
   );
 };
 
-export default definePlugin((serverApi: ServerAPI) => {
+definePlugin((serverApi: ServerAPI) => {
   return {
     title: <div className={staticClasses.Title}>Jimmy's Big Load</div>,
     content: <JBLPlugin serverAPI={serverApi} />,
