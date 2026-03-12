@@ -1,0 +1,331 @@
+import os
+import json
+import re
+import asyncio
+import urllib.request
+import ssl
+import logging
+from pathlib import Path
+from datetime import datetime, timedelta
+
+logger = logging.getLogger("jbl")
+
+HOME = Path("/home/deck")
+STEAM_DIR = HOME / ".steam" / "steam"
+STEAMAPPS = STEAM_DIR / "steamapps"
+COMPAT_DIR = STEAMAPPS / "compatibilitytools.d"
+COMPAT_DIR_ALT = Path.home() / ".local" / "share" / "Steam" / "compatibilitytools.d"
+COMMON_DIR = STEAMAPPS / "common"
+LIBRARY_FOLDERS = STEAMAPPS / "libraryfolders.vdf"
+CACHE_DIR = HOME / ".jbl_cache"
+CACHE_FILE = CACHE_DIR / "protondb_cache.json"
+CACHE_MAX_AGE = timedelta(days=1)
+
+
+def ensure_cache_dir():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_cache():
+    ensure_cache_dir()
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, "r") as f:
+                data = json.load(f)
+            cached_at = datetime.fromisoformat(data.get("cached_at", "2000-01-01"))
+            if datetime.now() - cached_at < CACHE_MAX_AGE:
+                return data.get("ratings", {})
+        except Exception:
+            pass
+    return {}
+
+
+def save_cache(ratings):
+    ensure_cache_dir()
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump({"cached_at": datetime.now().isoformat(), "ratings": ratings}, f)
+    except Exception:
+        pass
+
+
+def fetch_protondb_summary(appid):
+    try:
+        url = f"https://www.protondb.com/api/v1/reports/summaries/{appid}.json"
+        req = urllib.request.Request(url, headers={"User-Agent": "JBL-DeckyPlugin/1.0"})
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            data = json.loads(resp.read().decode())
+        return {
+            "tier": data.get("tier", "unknown"),
+            "score": data.get("score", 0),
+            "trending_tier": data.get("trendingTier", "unknown"),
+            "confidence": data.get("confidence", "low"),
+        }
+    except Exception:
+        return None
+
+
+def get_installed_games():
+    games = []
+    library_paths = [STEAMAPPS]
+    if LIBRARY_FOLDERS.exists():
+        try:
+            with open(LIBRARY_FOLDERS, "r") as f:
+                content = f.read()
+            paths = re.findall(r'"path"\s+"([^"]+)"', content)
+            for p in paths:
+                sp = Path(p) / "steamapps"
+                if sp.exists() and sp not in library_paths:
+                    library_paths.append(sp)
+        except Exception:
+            pass
+    for lib in library_paths:
+        for manifest in lib.glob("appmanifest_*.acf"):
+            try:
+                with open(manifest, "r") as f:
+                    data = f.read()
+                appid_m = re.search(r'"appid"\s+"(\d+)"', data)
+                name_m = re.search(r'"name"\s+"([^"]+)"', data)
+                if appid_m and name_m:
+                    appid = appid_m.group(1)
+                    name = name_m.group(1)
+                    if int(appid) < 100:
+                        continue
+                    lower_name = name.lower()
+                    skip_names = ["proton", "steam linux runtime", "steamworks", "steam controller", "steamvr"]
+                    if any(s in lower_name for s in skip_names):
+                        continue
+                    games.append({"appid": appid, "name": name, "manifest": str(manifest)})
+            except Exception:
+                continue
+    # Deduplicate by appid (libraryfolders.vdf can re-list default path)
+    seen_ids = {}
+    for g in games:
+        seen_ids[g["appid"]] = g
+    return list(seen_ids.values())
+
+
+def get_installed_protons():
+    protons = []
+    seen_names = set()
+    # Scan both compat tool directories for GE/custom Proton
+    for compat_dir in [COMPAT_DIR, COMPAT_DIR_ALT]:
+        if compat_dir.exists():
+            for d in sorted(compat_dir.iterdir(), reverse=True):
+                if d.is_dir() and d.name not in seen_names:
+                    name = d.name
+                    seen_names.add(name)
+                    # Classify type based on name
+                    lower = name.lower()
+                    if "ge-proton" in lower or "ge_proton" in lower:
+                        ptype = "GE"
+                    elif "legacy" in lower or "runtime" in lower:
+                        continue  # skip runtimes
+                    else:
+                        ptype = "custom"
+                    protons.append({"name": name, "path": str(d), "type": ptype})
+    # Scan common dir for official Valve Proton
+    if COMMON_DIR.exists():
+        for d in sorted(COMMON_DIR.iterdir(), reverse=True):
+            if d.is_dir() and d.name.lower().startswith("proton") and d.name not in seen_names:
+                seen_names.add(d.name)
+                name = d.name
+                lower = name.lower()
+                # Sub-classify official versions
+                if "experimental" in lower:
+                    ptype = "experimental"
+                elif "hotfix" in lower:
+                    ptype = "hotfix"
+                elif "beta" in lower:
+                    ptype = "beta"
+                elif "easyanticheat" in lower or "eac" in lower:
+                    continue  # skip EAC runtime
+                else:
+                    ptype = "stable"
+                protons.append({"name": name, "path": str(d), "type": ptype})
+    return protons
+
+
+def get_current_override(appid):
+    config_path = STEAM_DIR / "config" / "config.vdf"
+    if not config_path.exists():
+        return None
+    try:
+        with open(config_path, "r") as f:
+            content = f.read()
+        compat_section = content.find('"CompatToolMapping"')
+        if compat_section == -1:
+            return None
+        appid_pos = content.find(f'"{appid}"', compat_section)
+        if appid_pos == -1:
+            return None
+        name_match = re.search(r'"name"\s+"([^"]+)"', content[appid_pos:appid_pos + 300])
+        if name_match:
+            return name_match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def recommend_proton_for_tier(tier, installed_protons):
+    """Smart recommendation using all available Proton variants.
+    
+    Priority logic:
+    - native: no Proton needed
+    - platinum: any recent Proton works; prefer Experimental > stable > GE
+    - gold: Experimental or GE both good; prefer Experimental > GE > stable
+    - silver: GE patches often help; prefer GE > Experimental > stable
+    - bronze/borked: GE is best bet for compatibility patches
+    - unknown: default to Experimental or GE
+    """
+    ge = [p for p in installed_protons if p["type"] == "GE"]
+    experimental = [p for p in installed_protons if p["type"] == "experimental"]
+    hotfix = [p for p in installed_protons if p["type"] == "hotfix"]
+    stable = [p for p in installed_protons if p["type"] == "stable"]
+    beta = [p for p in installed_protons if p["type"] == "beta"]
+    
+    latest_ge = ge[0]["name"] if ge else None
+    latest_exp = experimental[0]["name"] if experimental else None
+    latest_hotfix = hotfix[0]["name"] if hotfix else None
+    latest_stable = stable[0]["name"] if stable else None
+    latest_beta = beta[0]["name"] if beta else None
+    
+    def first_available(*options):
+        for o in options:
+            if o:
+                return o
+        return None
+
+    if tier == "native":
+        return {"version": "None (Native)", "reason": "Runs natively on Linux"}
+
+    if tier == "platinum":
+        pick = first_available(latest_exp, latest_hotfix, latest_stable, latest_ge, latest_beta)
+        return {"version": pick, "reason": "PLATINUM - works great with any Proton; Experimental preferred"}
+
+    if tier == "gold":
+        pick = first_available(latest_exp, latest_ge, latest_hotfix, latest_stable, latest_beta)
+        return {"version": pick, "reason": "GOLD - Experimental or GE-Proton both solid choices"}
+
+    if tier == "silver":
+        pick = first_available(latest_ge, latest_exp, latest_hotfix, latest_stable, latest_beta)
+        return {"version": pick, "reason": "SILVER - GE-Proton patches often improve compatibility"}
+
+    if tier in ("bronze", "borked"):
+        pick = first_available(latest_ge, latest_exp, latest_beta, latest_hotfix, latest_stable)
+        return {"version": pick, "reason": f"{tier.upper()} - GE-Proton best bet for compat patches"}
+
+    # Unknown tier
+    pick = first_available(latest_exp, latest_ge, latest_hotfix, latest_stable, latest_beta)
+    return {"version": pick, "reason": "No ProtonDB data - defaulting to Experimental"}
+
+
+async def scan_and_advise():
+    games = get_installed_games()
+    logger.info(f"Proton Advisor: get_installed_games returned {len(games)} games")
+    protons = get_installed_protons()
+    cache = load_cache()
+    results = []
+    updated_cache = dict(cache)
+
+    for game in games:
+        appid = game["appid"]
+        name = game["name"]
+
+        if appid in cache:
+            pdb = cache[appid]
+        else:
+            try:
+                loop = asyncio.get_event_loop()
+                pdb = await loop.run_in_executor(None, fetch_protondb_summary, appid)
+                if pdb:
+                    updated_cache[appid] = pdb
+                else:
+                    pdb = {"tier": "unknown", "score": 0, "trending_tier": "unknown", "confidence": "none"}
+            except Exception as e:
+                logger.warning(f"ProtonDB fetch failed for {appid} ({name}): {e}")
+                pdb = {"tier": "unknown", "score": 0, "trending_tier": "unknown", "confidence": "none"}
+
+        tier = pdb.get("tier", "unknown")
+        trending = pdb.get("trending_tier", tier)
+        confidence = pdb.get("confidence", "low")
+        current = get_current_override(appid)
+        rec = recommend_proton_for_tier(tier, protons)
+
+        if tier == "native":
+            status = "native"
+        elif not current and tier in ("silver", "bronze", "borked"):
+            status = "no_override"
+        elif not current and tier in ("platinum", "gold"):
+            status = "auto_ok"
+        elif current and rec["version"] and current == rec["version"]:
+            status = "optimal"
+        elif current and rec["version"] and current != rec["version"]:
+            # Don't flag upgrade if current is already a strong choice
+            cur_lower = current.lower()
+            cur_is_ge = "ge-proton" in cur_lower or "ge_proton" in cur_lower
+            cur_is_exp = "experimental" in cur_lower
+            cur_is_hotfix = "hotfix" in cur_lower
+            if tier in ("platinum", "gold") and (cur_is_ge or cur_is_exp or cur_is_hotfix):
+                status = "ok"
+                rec["reason"] = f"{rec['reason']} (current {current} is also suitable)"
+            elif tier == "silver" and cur_is_ge:
+                status = "ok"
+                rec["reason"] = f"{rec['reason']} (current GE-Proton is a good choice)"
+            else:
+                status = "upgrade_available"
+        else:
+            status = "ok"
+
+        results.append({
+            "appid": appid,
+            "name": name,
+            "protondb_tier": tier,
+            "protondb_trending": trending,
+            "protondb_confidence": confidence,
+            "current_proton": current or "Steam Default",
+            "recommended": rec["version"] or "Unknown",
+            "reason": rec["reason"],
+            "status": status,
+        })
+
+    save_cache(updated_cache)
+
+    priority = {"upgrade_available": 0, "no_override": 1, "native": 2, "optimal": 3, "auto_ok": 4, "ok": 5}
+    results.sort(key=lambda x: (priority.get(x["status"], 5), x["name"]))
+
+    logger.info(f"Proton Advisor: scanned {len(results)} games, {len(updated_cache)} cached ratings")
+    return results
+
+
+def set_proton_override(appid, proton_name):
+    config_path = STEAM_DIR / "config" / "config.vdf"
+    if not config_path.exists():
+        return {"success": False, "error": "config.vdf not found"}
+    try:
+        with open(config_path, "r") as f:
+            content = f.read()
+        compat_pos = content.find('"CompatToolMapping"')
+        if compat_pos == -1:
+            return {"success": False, "error": "CompatToolMapping section not found"}
+        brace_pos = content.find("{", compat_pos)
+        if brace_pos == -1:
+            return {"success": False, "error": "Malformed config.vdf"}
+        appid_str = f'"{appid}"'
+        appid_pos = content.find(appid_str, compat_pos)
+        if appid_pos != -1:
+            block_start = content.find("{", appid_pos)
+            block_end = content.find("}", block_start) + 1
+            new_block = f'"{appid}"\n\t\t\t\t\t{{\n\t\t\t\t\t\t"name"\t\t"{proton_name}"\n\t\t\t\t\t\t"config"\t\t""\n\t\t\t\t\t\t"priority"\t\t"250"\n\t\t\t\t\t}}'
+            content = content[:appid_pos] + new_block + content[block_end:]
+        else:
+            insert = f'\n\t\t\t\t\t"{appid}"\n\t\t\t\t\t{{\n\t\t\t\t\t\t"name"\t\t"{proton_name}"\n\t\t\t\t\t\t"config"\t\t""\n\t\t\t\t\t\t"priority"\t\t"250"\n\t\t\t\t\t}}'
+            content = content[:brace_pos + 1] + insert + content[brace_pos + 1:]
+        with open(config_path, "w") as f:
+            f.write(content)
+        return {"success": True, "message": f"Set {proton_name} for app {appid}. Restart Steam to apply."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

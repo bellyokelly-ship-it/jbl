@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+*.log
+settings.json
+profiles.json
+autopower.json
+community_settings.json
