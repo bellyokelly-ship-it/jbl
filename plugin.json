@@ -1,20 +1,11 @@
 {
   "name": "Jimmy's Big Load",
   "author": "Bellyokelly-ship-it",
-  "flags": [
-    "root",
-    "debug"
-  ],
+  "flags": [],
+  "api_version": 1,
   "publish": {
-    "tags": [
-      "performance",
-      "power",
-      "proton",
-      "lsfg",
-      "health"
-    ],
+    "tags": ["performance", "power", "proton", "lsfg", "health"],
     "description": "All-in-one Steam Deck power management: PowerShift TDP/GPU control, LSFG frame gen, Proton-GE manager, health monitoring, and game profiles.",
-    "image": "https://raw.githubusercontent.com/bellyokelly-ship-it/jbl/main/assets/jbl-banner.png"
-  },
-  "api_version": 1
+    "image": ""
+  }
 }

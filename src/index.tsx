@@ -1,100 +1,97 @@
 import { definePlugin } from "@decky/api";
-import { useState, VFC } from "react";
-import { Tabs } from "@decky/ui";
+import { useState, useRef, useEffect, VFC } from "react";
+import { Focusable, PanelSection, PanelSectionRow, staticClasses } from "@decky/ui";
+
 import { PowerShiftPanel } from "./panels/PowerShiftPanel";
 import { LSFGPanel } from "./panels/LSFGPanel";
 import { ProtonPanel } from "./panels/ProtonPanel";
-import { ProfilesPanel } from "./panels/ProfilesPanel";
 import { HealthPanel } from "./panels/HealthPanel";
+import { ProfilesPanel } from "./panels/ProfilesPanel";
 import { ProtonAdvisorPanel } from "./panels/ProtonAdvisorPanel";
+import { AutoOptimisePanel } from "./panels/AutoOptimisePanel";
+import { JBL } from "./styles";
 
-const JBLContent: VFC = () => {
-  const [activeTab, setActiveTab] = useState("powershift");
+const tabs = [
+  { label: "⚡", name: "Power", component: PowerShiftPanel },
+  { label: "🎞️", name: "LSFG", component: LSFGPanel },
+  { label: "🧬", name: "Proton", component: ProtonPanel },
+  { label: "🧪", name: "Advisor", component: ProtonAdvisorPanel },
+  { label: "🔧", name: "Auto", component: AutoOptimisePanel },
+  { label: "💾", name: "Profiles", component: ProfilesPanel },
+  { label: "🩺", name: "Health", component: HealthPanel },
+];
+
+const TabBar: VFC<{ active: number; onSelect: (i: number) => void }> = ({ active, onSelect }) => (
+  <Focusable
+    style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(7, 1fr)",
+      gap: "4px",
+      padding: "6px 4px",
+      background: `linear-gradient(180deg, ${JBL.surfaceDark} 0%, ${JBL.panelBg} 100%)`,
+      borderBottom: `1px solid ${JBL.cardBorder}`,
+      position: "sticky",
+      top: 0,
+      zIndex: 10,
+    }}
+  >
+    {tabs.map((t, i) => (
+      <Focusable
+        key={i}
+        onActivate={() => onSelect(i)}
+        onClick={() => onSelect(i)}
+        focusWithinClassName="gpfocuswithin"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "6px 2px",
+          borderRadius: "6px",
+          background: active === i
+            ? `linear-gradient(135deg, ${JBL.cyan}33, ${JBL.cyan}11)`
+            : "transparent",
+          border: active === i ? `1px solid ${JBL.cyan}66` : "1px solid transparent",
+          cursor: "pointer",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <span style={{ fontSize: "16px" }}>{t.label}</span>
+        <span style={{
+          fontSize: "9px",
+          color: active === i ? JBL.cyan : JBL.textDim,
+          fontWeight: active === i ? "bold" : "normal",
+          marginTop: "2px",
+        }}>
+          {t.name}
+        </span>
+      </Focusable>
+    ))}
+  </Focusable>
+);
+
+const Content: VFC = () => {
+  const [activeTab, setActiveTab] = useState(0);
+  const ActivePanel = tabs[activeTab].component;
 
   return (
-    <div style={{
-      marginTop: "40px",
-      position: "absolute",
-      top: "0",
-      left: "0",
-      right: "0",
-      bottom: "0",
-      display: "flex",
-      flexDirection: "column",
-    }}>
-      <style>{`
-        .jbl-root [class*="GamepadTabbedPage"] {
-          flex: 1 !important;
-          min-height: 0 !important;
-        }
-        .jbl-root [class*="TabContentsScroll"],
-        .jbl-root [class*="TabContents"] {
-          height: 100% !important;
-          max-height: none !important;
-          flex: 1 !important;
-        }
-        .jbl-root [class*="Tabs"] {
-          display: flex !important;
-          flex-direction: column !important;
-          height: 100% !important;
-        }
-        .jbl-root [class*="TabCount"] {
-          font-size: 12px !important;
-        }
-      `}</style>
-      <div className="jbl-root" style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        flex: 1,
-      }}>
-        <Tabs
-          activeTab={activeTab}
-          onShowTab={(id: string) => setActiveTab(id)}
-          tabs={[
-            {
-              id: "powershift",
-              title: "⚡ Power",
-              content: <PowerShiftPanel />,
-            },
-            {
-              id: "lsfg",
-              title: "🎞️ LSFG",
-              content: <LSFGPanel />,
-            },
-            {
-              id: "proton",
-              title: "🧪 Proton",
-              content: <ProtonPanel />,
-            },
-            {
-              id: "advisor",
-              title: "🎯 Advisor",
-              content: <ProtonAdvisorPanel />,
-            },
-            {
-              id: "profiles",
-              title: "💾 Profiles",
-              content: <ProfilesPanel />,
-            },
-            {
-              id: "health",
-              title: "🩺 Health",
-              content: <HealthPanel />,
-            },
-          ]}
-        />
-      </div>
-    </div>
+    <PanelSection>
+      <TabBar active={activeTab} onSelect={setActiveTab} />
+      <Focusable
+        focusWithinClassName="gpfocuswithin"
+        style={{
+          marginTop: "4px",
+        }}
+      >
+        <ActivePanel />
+      </Focusable>
+    </PanelSection>
   );
 };
 
 export default definePlugin(() => ({
-  name: "Jimmys Big Load",
-  title: <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-    <span style={{ fontSize: "16px" }}>⚡</span>
-    <span>Jimmys Big Load</span>
-  </div>,
-  content: <JBLContent />,
+  name: "Jimmy's Big Load",
+  title: <span style={{ color: JBL.cyan, fontWeight: "bold" }}>JBL</span>,
+  content: <Content />,
   icon: <span style={{ fontSize: "20px" }}>⚡</span>,
 }));

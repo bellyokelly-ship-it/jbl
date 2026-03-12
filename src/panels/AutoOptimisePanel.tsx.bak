@@ -1,0 +1,187 @@
+import { VFC, useState, useEffect } from "react";
+import {
+  PanelSection,
+  PanelSectionRow,
+  Field,
+  ButtonItem,
+  ToggleField,
+} from "@decky/ui";
+import { call } from "@decky/api";
+
+interface OptimiseResult {
+  applied: Array<{ appid: string; name: string; from: string; to: string }>;
+  skipped: Array<{ appid: string; name: string; reason: string }>;
+  errors: Array<{ appid: string; name: string; error: string }>;
+  summary: string;
+}
+
+interface AutoStatus {
+  auto_apply_profile: boolean;
+  auto_revert_profile: boolean;
+  auto_proton_on_install: boolean;
+  current_game: string | null;
+}
+
+export const AutoOptimisePanel: VFC = () => {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<OptimiseResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [autoStatus, setAutoStatus] = useState<AutoStatus>({
+    auto_apply_profile: true,
+    auto_revert_profile: true,
+    auto_proton_on_install: false,
+    current_game: null,
+  });
+  const [currentGame, setCurrentGame] = useState<string | null>(null);
+
+  const loadStatus = async () => {
+    try {
+      const raw = await call<[], string>("get_auto_optimise_status");
+      const parsed = JSON.parse(raw);
+      setAutoStatus(parsed);
+    } catch (e) {
+      console.error("Failed to load auto-optimise status", e);
+    }
+  };
+
+  const pollGame = async () => {
+    try {
+      const raw = await call<[], string>("get_running_game");
+      const parsed = JSON.parse(raw);
+      setCurrentGame(parsed.appid || null);
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    loadStatus();
+    const interval = setInterval(pollGame, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const doOptimiseAll = async () => {
+    setRunning(true);
+    setResult(null);
+    setError(null);
+    try {
+      const raw = await call<[], string>("batch_optimise_proton");
+      const parsed = JSON.parse(raw);
+      if (parsed.error) {
+        setError(parsed.error);
+      } else {
+        setResult(parsed);
+      }
+    } catch (e: any) {
+      setError(e.message || "Batch optimise failed");
+    }
+    setRunning(false);
+  };
+
+  const toggleSetting = async (key: string, value: boolean) => {
+    try {
+      await call<[string, boolean], string>("set_auto_optimise", key, value);
+      setAutoStatus((prev) => ({ ...prev, [key]: value }));
+    } catch (e) {
+      console.error("Toggle failed", e);
+    }
+  };
+
+  return (
+    <>
+      <PanelSection title="Optimise All Games">
+        <PanelSectionRow>
+          <Field
+            label="Proton Optimiser"
+            description="Scan all games and apply best Proton version"
+          >
+            <ButtonItem layout="below" onClick={doOptimiseAll} disabled={running}>
+              {running ? "Scanning & Applying..." : "Optimise All"}
+            </ButtonItem>
+          </Field>
+        </PanelSectionRow>
+
+        {error && (
+          <PanelSectionRow>
+            <Field label="Error">
+              <span style={{ color: "#ff4444" }}>{error}</span>
+            </Field>
+          </PanelSectionRow>
+        )}
+
+        {result && (
+          <>
+            <PanelSectionRow>
+              <Field label="Summary">
+                <span style={{ color: "#66bb6a" }}>{result.summary}</span>
+              </Field>
+            </PanelSectionRow>
+
+            {result.applied.length > 0 && (
+              <PanelSectionRow>
+                <Field label="Applied" description={result.applied.length + " games updated"}>
+                  <div style={{ fontSize: "12px", maxHeight: "120px", overflowY: "auto" }}>
+                    {result.applied.map((g) => (
+                      <div key={g.appid} style={{ color: "#66bb6a", marginBottom: "2px" }}>
+                        {g.name}: {g.from} -&gt; {g.to}
+                      </div>
+                    ))}
+                  </div>
+                </Field>
+              </PanelSectionRow>
+            )}
+
+            {result.errors.length > 0 && (
+              <PanelSectionRow>
+                <Field label="Errors" description={result.errors.length + " failed"}>
+                  <div style={{ fontSize: "12px", maxHeight: "80px", overflowY: "auto" }}>
+                    {result.errors.map((g) => (
+                      <div key={g.appid} style={{ color: "#ff4444", marginBottom: "2px" }}>
+                        {g.name}: {g.error}
+                      </div>
+                    ))}
+                  </div>
+                </Field>
+              </PanelSectionRow>
+            )}
+          </>
+        )}
+      </PanelSection>
+
+      <PanelSection title="Auto-Optimise">
+        <PanelSectionRow>
+          <ToggleField
+            label="Auto-Apply Profile on Launch"
+            description="Apply saved TDP/GPU/LSFG when a game starts"
+            checked={autoStatus.auto_apply_profile}
+            onChange={(val) => toggleSetting("auto_apply_profile", val)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Auto-Revert on Exit"
+            description="Restore balanced defaults when game closes"
+            checked={autoStatus.auto_revert_profile}
+            onChange={(val) => toggleSetting("auto_revert_profile", val)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Auto-Set Proton on Install"
+            description="Set recommended Proton when new game detected"
+            checked={autoStatus.auto_proton_on_install}
+            onChange={(val) => toggleSetting("auto_proton_on_install", val)}
+          />
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Live Status">
+        <PanelSectionRow>
+          <Field label="Running Game">
+            <span style={{ color: currentGame ? "#29b6f6" : "#888" }}>
+              {currentGame ? "AppID: " + currentGame : "No game running"}
+            </span>
+          </Field>
+        </PanelSectionRow>
+      </PanelSection>
+    </>
+  );
+};

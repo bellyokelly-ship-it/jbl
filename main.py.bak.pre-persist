@@ -1,5 +1,4 @@
 import os
-import ssl
 import re
 import glob
 import sys
@@ -336,7 +335,7 @@ class ProtonGEManager:
                 headers={'User-Agent': 'JBL-Decky-Plugin/1.0'}
             )
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=15, context=ssl._create_unverified_context()))
+            response = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=15))
             data = json.loads(response.read().decode())
             releases = []
             for r in data:
@@ -366,7 +365,7 @@ class ProtonGEManager:
             logger.info(f'Downloading Proton-GE {tag}...')
             req = urllib.request.Request(download_url, headers={'User-Agent': 'JBL-Decky-Plugin/1.0'})
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=300, context=ssl._create_unverified_context()))
+            response = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=300))
             with open(tar_path, 'wb') as f:
                 shutil.copyfileobj(response, f)
             logger.info('Download complete. Extracting...')
@@ -785,9 +784,6 @@ class Plugin:
     async def get_settings(self):
         return self.settings.settings
 
-    async def get_global_settings(self):
-        return self.settings.settings.get('global', {})
-
     async def set_setting(self, section, key, value):
         if section == 'global':
             self.settings.set_global(key, value)
@@ -795,66 +791,3 @@ class Plugin:
             self.settings.set_automation(key, value)
         else:
             return {'success': False, 'error': f'Unknown section: {section}'}
-        return {'success': True}
-
-    async def get_game_recommendation(self, appid, mode="handheld"):
-        """Get full recommendation (Proton + TDP + GPU + LSFG) for a single game."""
-        try:
-            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            from proton_advisor import (
-                get_installed_games, get_installed_protons, get_current_override,
-                fetch_protondb_summary, load_cache, save_cache, get_full_recommendation
-            )
-            cache = load_cache()
-            if appid in cache:
-                pdb = cache[appid]
-            else:
-                loop = asyncio.get_event_loop()
-                pdb = await loop.run_in_executor(None, fetch_protondb_summary, appid)
-                if pdb:
-                    cache[appid] = pdb
-                    save_cache(cache)
-                else:
-                    pdb = {"tier": "unknown"}
-
-            tier = pdb.get("tier", "unknown")
-            protons = get_installed_protons()
-            current = get_current_override(appid)
-            rec = get_full_recommendation(tier, protons, mode)
-            rec["current_proton"] = current or "Steam Default"
-            rec["protondb_tier"] = tier
-            rec["appid"] = appid
-            return json.dumps({"success": True, **rec})
-        except Exception as e:
-            logger.error(f"get_game_recommendation failed: {e}")
-            return json.dumps({"success": False, "error": str(e)})
-
-    async def apply_game_optimisation(self, appid, proton_version, tdp, gpu_clock):
-        """Apply the recommended settings for a game."""
-        try:
-            results = []
-            # Apply Proton override
-            if proton_version and proton_version not in ("None (Native)", "Unknown", "Steam Default"):
-                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                from proton_advisor import set_proton_override, get_current_override
-                current = get_current_override(appid)
-                if current != proton_version:
-                    r = set_proton_override(appid, proton_version)
-                    results.append({"action": "proton", "result": r})
-                else:
-                    results.append({"action": "proton", "result": {"success": True, "message": "Already set"}})
-
-            # Apply TDP
-            if tdp:
-                r = PowerShift.set_tdp(int(tdp))
-                results.append({"action": "tdp", "result": r})
-
-            # Apply GPU clock
-            if gpu_clock:
-                r = PowerShift.set_gpu_clock(int(gpu_clock))
-                results.append({"action": "gpu_clock", "result": r})
-
-            return json.dumps({"success": True, "results": results})
-        except Exception as e:
-            logger.error(f"apply_game_optimisation failed: {e}")
-            return json.dumps({"success": False, "error": str(e)})
