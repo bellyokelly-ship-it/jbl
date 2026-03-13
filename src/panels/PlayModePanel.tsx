@@ -15,7 +15,7 @@ import {
   profileReset,
   profileResetAll,
 } from "../backend";
-import { success, info } from "../toast";
+import { success, info, resetCooldown } from "../toast";
 
 interface PlayModeProfile {
   tdp: number;
@@ -180,7 +180,8 @@ export const PlayModePanel: FC = () => {
   const applyMode = async (targetMode?: string) => {
     setApplying(true);
     try {
-      const res = parse(await playmodeApply(targetMode || ""));
+      resetCooldown("mode");
+        const res = parse(await playmodeApply(targetMode || ""));
       if (res.ok) {
         const m = res.value.mode;
         const a = res.value.applied;

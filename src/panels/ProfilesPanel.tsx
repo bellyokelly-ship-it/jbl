@@ -39,13 +39,13 @@ const ProfilesPanel: React.FC = () => {
       const t = parse(await getTdp());
       const g = parse(await getGpuClock());
       const l = parse(await getLsfg());
-      const r = parse(await saveGameProfile(sel, {
+      const r = parse(await saveGameProfile(sel, JSON.stringify({
         tdp: t.ok ? t.value : 12,
         gpu_clock: g.ok ? g.value : 1100,
         lsfg_enabled: l.ok ? l.value.enabled : false,
         lsfg_multiplier: l.ok ? l.value.multiplier : 2,
         lsfg_flow: l.ok ? l.value.flow : 50,
-      }));
+      })));
       if (r.ok) { success("Saved"); load(); } else fail(r.error);
     } catch (e: any) { fail(e.message); }
   };
