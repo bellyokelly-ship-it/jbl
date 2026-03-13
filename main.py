@@ -23,7 +23,21 @@ STEAMAPPS_PATHS = [
     os.path.join(HOME, ".local/share/Steam/steamapps"),
     os.path.join(HOME, ".steam/steam/steamapps"),
 ]
-TDP_PATH = "/sys/class/hwmon/hwmon5/power1_cap"
+def _find_hwmon(name_match: str, file: str) -> str:
+    """Dynamically find hwmon path by device name — hwmon numbers shuffle on reboot."""
+    import glob as _g
+    for hwmon in sorted(_g.glob("/sys/class/hwmon/hwmon*")):
+        try:
+            with open(os.path.join(hwmon, "name"), "r") as f:
+                if f.read().strip() == name_match:
+                    path = os.path.join(hwmon, file)
+                    if os.path.exists(path):
+                        return path
+        except:
+            pass
+    return ""
+
+TDP_PATH = _find_hwmon("amdgpu", "power1_cap")
 GPU_OD_PATH = "/sys/class/drm/card0/device/pp_od_clk_voltage"
 GPU_DPM_PATH = "/sys/class/drm/card0/device/pp_dpm_sclk"
 GPU_LEVEL_PATH = "/sys/class/drm/card0/device/power_dpm_force_performance_level"
@@ -494,6 +508,7 @@ class Plugin:
 
     async def jbl_proton_apply(self, appid: str, version: str, dry_run: bool = False):
         """Apply a single Proton override for a game."""
+        logger.info(f"APPLY CALLED: appid={appid} version={version} dry_run={dry_run}")
         try:
             if dry_run:
                 return _ok({
@@ -503,6 +518,7 @@ class Plugin:
                     "message": f"Would set {appid} to {version}"
                 })
             result = apply_proton_override(appid, version)
+            logger.info(f"APPLY RESULT: appid={appid} result={result}")
             if result:
                 return _ok({
                     "applied": True,
@@ -516,6 +532,7 @@ class Plugin:
 
     async def jbl_proton_apply_all(self, changes: str, dry_run: bool = False):
         """Apply multiple Proton overrides at once.
+        logger.info(f"APPLY_ALL CALLED: dry_run={dry_run} changes={changes[:200]}")
         changes: JSON string of [{"appid": "123", "version": "GE-Proton10-32"}, ...]
         """
         try:

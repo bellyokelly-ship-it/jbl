@@ -19,7 +19,7 @@ const ProtonPanel: React.FC = () => {
 
   const loadInstalled = async () => {
     try {
-      const r = JSON.parse(await getProtonVersions());
+      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getProtonVersions());
       if (r.ok) setInstalled(r.value);
     } catch {}
   };
@@ -27,7 +27,7 @@ const ProtonPanel: React.FC = () => {
   const loadReleases = async () => {
     setLoading(true);
     try {
-      const r = JSON.parse(await fetchProtonReleases(20));
+      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await fetchProtonReleases(20));
       if (r.ok) setReleases(r.value);
     } catch {}
     setLoading(false);
@@ -41,7 +41,7 @@ const ProtonPanel: React.FC = () => {
     setInstalling(rel.tag);
     info(`Installing ${rel.tag} (${rel.size_mb}MB)...`);
     try {
-      const r = JSON.parse(await installProton(rel.url, rel.tag));
+      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await installProton(rel.url, rel.tag));
       r.ok ? success(r.value) : fail(r.error);
       await loadInstalled();
     } catch (e) { fail(`Install error: ${e}`); }
@@ -50,7 +50,7 @@ const ProtonPanel: React.FC = () => {
 
   const handleRemove = async (name: string) => {
     try {
-      const r = JSON.parse(await removeProton(name));
+      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await removeProton(name));
       r.ok ? success(r.value) : fail(r.error);
       await loadInstalled();
     } catch (e) { fail(`Remove error: ${e}`); }

@@ -12,7 +12,7 @@ const HealthPanel: React.FC = () => {
 
   const refresh = async () => {
     try {
-      const r = JSON.parse(await getHealth());
+      const r = ((v: any) => typeof v === "string" ? JSON.parse(v) : v)(await getHealth());
       if (r.ok) setData(r.value);
       else fail(r.error);
     } catch (e) { fail(`Health error: ${e}`); }

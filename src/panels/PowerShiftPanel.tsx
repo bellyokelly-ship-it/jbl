@@ -41,7 +41,7 @@ export const PowerShiftPanel: FC = () => {
   const handlePreset = async (preset: string) => {
     try {
       const raw = await applyPowerPreset(preset);
-      const p = JSON.parse(raw);
+      const p = ((v) => typeof v === "string" ? JSON.parse(v) : v)(raw);
       setTdpVal(p.tdp);
       setGpuVal(p.gpu);
       setStatus(`Preset: ${preset}`);

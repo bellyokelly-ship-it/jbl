@@ -24,9 +24,9 @@ const PowerPanel: React.FC = () => {
 
   const load = async () => {
     try {
-      const tr = JSON.parse(await getTdp());
+      const tr = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getTdp());
       if (tr.ok) setTdpVal(tr.value);
-      const gr = JSON.parse(await getGpuClock());
+      const gr = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getGpuClock());
       if (gr.ok) setGpuVal(gr.value);
     } catch {}
   };
@@ -40,7 +40,7 @@ const PowerPanel: React.FC = () => {
     if (tdpTimer.current) clearTimeout(tdpTimer.current);
     tdpTimer.current = setTimeout(async () => {
       try {
-        const r = JSON.parse(await setTdp(v));
+        const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await setTdp(v));
         if (r.ok) {
           success(`TDP → ${r.value.actual}W ${r.value.verified ? "✓" : ""}`);
         } else { fail(`TDP: ${r.error}`); }
@@ -55,7 +55,7 @@ const PowerPanel: React.FC = () => {
     if (gpuTimer.current) clearTimeout(gpuTimer.current);
     gpuTimer.current = setTimeout(async () => {
       try {
-        const r = JSON.parse(await setGpuClock(v));
+        const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await setGpuClock(v));
         if (r.ok) {
           success(`GPU → ${r.value.actual}MHz`);
         } else { fail(`GPU: ${r.error}`); }
@@ -66,7 +66,7 @@ const PowerPanel: React.FC = () => {
   const handlePreset = async (key: string) => {
     setActivePreset(key);
     try {
-      const r = JSON.parse(await applyPowerPreset(key));
+      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await applyPowerPreset(key));
       if (r.ok) {
         const d = r.value;
         setTdpVal(d.tdp);

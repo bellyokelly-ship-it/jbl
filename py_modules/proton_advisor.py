@@ -6,6 +6,14 @@ import asyncio
 import logging
 import shutil
 import urllib.request
+import ssl
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    _SSL_CTX = ssl.create_default_context()
+    _SSL_CTX.check_hostname = False
+    _SSL_CTX.verify_mode = ssl.CERT_NONE
 import urllib.error
 from pathlib import Path
 from datetime import datetime
@@ -16,7 +24,9 @@ logger = logging.getLogger("jbl")
 # PATH DETECTION — works on Deck and desktop Linux
 # ============================================================
 
-HOME = Path(os.environ.get("HOME", "/home/deck"))
+# Decky runs as root — always resolve to the deck user
+DECK_HOME = Path("/home/deck")
+HOME = DECK_HOME
 
 # Try multiple known Steam paths
 _STEAM_CANDIDATES = [
@@ -397,7 +407,7 @@ async def fetch_protondb_summary(appid: str) -> dict:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "JBL-DeckyPlugin/1.0"})
         loop = asyncio.get_event_loop()
-        resp = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=10))
+        resp = await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, context=_SSL_CTX, timeout=10))
         data = json.loads(resp.read().decode())
         data["_ts"] = time.time()
         _mem_cache[cache_key] = (time.time(), data)
@@ -620,107 +630,107 @@ def restore_config_backup(backup_name: str = None) -> dict:
 
 def apply_proton_override(appid: str, version: str) -> bool:
     """
-    Write a Proton override for a single appid into Steam's config.vdf.
-    Returns True on success, False on failure.
-    
-    The CompatToolMapping lives at:
-    Software > Valve > Steam > CompatToolMapping > {appid} > name
+    Write a Proton override into Steam config.vdf.
+    Uses regex section parsing with brace-depth tracking.
     """
+    import re as _re
+    from datetime import datetime
+
     config_vdf = HOME / ".local/share/Steam/config/config.vdf"
     if not config_vdf.exists():
-        # Try alternate path
         config_vdf = HOME / ".steam/steam/config/config.vdf"
     if not config_vdf.exists():
+        logger.error("config.vdf not found")
         return False
 
     try:
-        with open(config_vdf, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+        text = config_vdf.read_text(encoding="utf-8", errors="replace")
+
+        # Backup
+        backup_dir = HOME / ".local/share/Steam/config/jbl_backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        (backup_dir / f"config.vdf.{ts}.bak").write_text(text, encoding="utf-8")
+        for old in sorted(backup_dir.glob("config.vdf.*.bak"), reverse=True)[10:]:
+            old.unlink()
 
         # Find CompatToolMapping section
-        in_compat = False
-        compat_indent = 0
-        appid_found = False
-        in_appid_block = False
-        appid_indent = 0
-        name_replaced = False
-        insert_index = None
-        compat_close = None
-
-        i = 0
-        while i < len(lines):
-            stripped = lines[i].strip()
-
-            if '"CompatToolMapping"' in stripped and not in_compat:
-                in_compat = True
-                # Next line should be opening brace
-                compat_indent = len(lines[i]) - len(lines[i].lstrip())
-                i += 1
-                continue
-
-            if in_compat and not appid_found:
-                if f'"{appid}"' in stripped:
-                    appid_found = True
-                    in_appid_block = True
-                    appid_indent = len(lines[i]) - len(lines[i].lstrip())
-                    i += 1
-                    # Skip opening brace
-                    if i < len(lines) and lines[i].strip() == "{":
-                        i += 1
-                    continue
-                # Track where CompatToolMapping closes so we can insert before it
-                if stripped == "}" and not in_appid_block:
-                    compat_close = i
-
-            if in_appid_block:
-                if '"name"' in stripped:
-                    # Replace the name value
-                    indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-                    lines[i] = f'{indent}"name"\t\t"{version}"\n'
-                    name_replaced = True
-                elif '"Name"' in stripped:
-                    indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-                    lines[i] = f'{indent}"Name"\t\t"{version}"\n'
-                    name_replaced = True
-                elif stripped == "}":
-                    if not name_replaced:
-                        # Add name line before closing brace
-                        indent = "\t" * (appid_indent // 4 + 2) if appid_indent else "\t\t\t\t\t\t\t\t"
-                        lines.insert(i, f'{indent}"name"\t\t"{version}"\n')
-                        name_replaced = True
-                    in_appid_block = False
-                    break
-
-            i += 1
-
-        # If appid not found in CompatToolMapping, insert a new block
-        if in_compat and not appid_found and compat_close is not None:
-            indent_base = "\t" * 7
-            indent_inner = "\t" * 8
-            new_block = [
-                f'{indent_base}"{appid}"\n',
-                f'{indent_base}{{\n',
-                f'{indent_inner}"name"\t\t"{version}"\n',
-                f'{indent_inner}"config"\t\t""\n',
-                f'{indent_inner}"priority"\t\t"250"\n',
-                f'{indent_base}}}\n',
-            ]
-            for j, line in enumerate(new_block):
-                lines.insert(compat_close + j, line)
-            name_replaced = True
-
-        if not name_replaced:
+        cm = _re.search(r'"CompatToolMapping"\s*\n\s*\{', text)
+        if not cm:
+            logger.error("CompatToolMapping section not found")
             return False
 
-        # Write back
-        with open(config_vdf, "w", encoding="utf-8") as f:
-            f.writelines(lines)
+        # Find opening brace of CompatToolMapping
+        brace_start = text.index("{", cm.start() + 20)
+        depth = 1
+        pos = brace_start + 1
+        while pos < len(text) and depth > 0:
+            if text[pos] == "{":
+                depth += 1
+            elif text[pos] == "}":
+                depth -= 1
+            pos += 1
+        brace_end = pos - 1  # closing } of CompatToolMapping
 
-        return True
+        section_inner = text[brace_start + 1 : brace_end]
+
+        # Detect indent from existing entries
+        indent_m = _re.search(r'(\n([ \t]+))"\d+"', section_inner)
+        if indent_m:
+            nl_indent = indent_m.group(1)
+            entry_indent = indent_m.group(2)
+        else:
+            entry_indent = "\t" * 7
+            nl_indent = "\n" + entry_indent
+        inner_indent = entry_indent + "\t"
+
+        # Build the entry block
+        block = (
+            nl_indent + '"' + appid + '"'
+            + nl_indent + "{"
+            + "\n" + inner_indent + '"name"\t\t"' + version + '"'
+            + "\n" + inner_indent + '"config"\t\t""'
+            + "\n" + inner_indent + '"priority"\t\t"250"'
+            + nl_indent + "}"
+        )
+
+        # Check if appid already exists
+        existing = _re.search(
+            r'[ \t]*"' + _re.escape(appid) + r'"\s*\n\s*\{[^}]*\}',
+            section_inner
+        )
+
+        if existing:
+            new_section = (
+                section_inner[:existing.start()]
+                + block.lstrip("\n")
+                + section_inner[existing.end():]
+            )
+            logger.info(f"Replaced CompatToolMapping entry: {appid} -> {version}")
+        else:
+            # Append before the end of section
+            stripped = section_inner.rstrip()
+            new_section = stripped + block + "\n"
+            logger.info(f"Inserted new CompatToolMapping entry: {appid} -> {version}")
+
+        # Reconstruct the full file
+        new_text = text[:brace_start + 1] + new_section + text[brace_end:]
+
+        config_vdf.write_text(new_text, encoding="utf-8")
+
+        # Verify
+        verify = config_vdf.read_text(encoding="utf-8", errors="replace")
+        if ('"' + appid + '"') in verify and version in verify:
+            logger.info(f"VERIFIED: {appid} -> {version} in config.vdf")
+            return True
+        else:
+            logger.error(f"VERIFICATION FAILED for {appid} -> {version}")
+            return False
 
     except Exception as e:
-        import logging
-        logging.getLogger("jbl.proton").error(f"apply_proton_override failed: {e}")
+        logger.error(f"apply_proton_override failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
@@ -734,7 +744,7 @@ async def scan_and_advise() -> dict:
     protons = get_installed_protons()
 
     results = []
-    stats = {"total": 0, "native": 0, "recommend": 0, "suggest": 0, "ok": 0}
+    stats = {"total": 0, "native": 0, "recommend": 0, "suggest": 0, "ok": 0, "ge_installed": [], "official": [], "scan_time": ""}
 
     for game in games:
         game.current_proton = overrides.get(game.appid, "Steam Default")

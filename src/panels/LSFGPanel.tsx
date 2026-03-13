@@ -17,7 +17,7 @@ const LSFGPanel: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const r = JSON.parse(await getLsfg());
+        const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getLsfg());
         if (r.ok) {
           setEnabled(r.value.enabled);
           setMultiplier(r.value.multiplier);
@@ -31,7 +31,7 @@ const LSFGPanel: React.FC = () => {
     if (applyTimer.current) clearTimeout(applyTimer.current);
     applyTimer.current = setTimeout(async () => {
       try {
-        const r = JSON.parse(await setLsfg(en, mul, flow));
+        const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await setLsfg(en, mul, flow));
         if (r.ok) {
           success(`LSFG ${en ? "ON" : "OFF"} — ${mul}x @ ${flow}% ${r.value.confirmed ? "✓" : ""}`);
         } else { fail(`LSFG: ${r.error}`); }

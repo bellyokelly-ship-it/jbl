@@ -9,16 +9,16 @@ import {
 import { protonScan, protonApply, protonApplyAll } from "../backend";
 import { success, fail, info } from "../toast";
 
-// ── Types ────────────────────────────────────────────────────
 interface GameResult {
   appid: string;
   name: string;
   tier: string;
-  confidence: number;
+  confidence: string;
+  score: number;
   current_proton: string;
   recommended_proton: string;
-  action: string; // "recommend" | "suggest" | "none"
-  native: boolean;
+  action: string;
+  is_native: boolean;
 }
 
 interface ScanStats {
@@ -37,7 +37,6 @@ interface ScanResult {
   stats: ScanStats;
 }
 
-// ── Helpers ──────────────────────────────────────────────────
 const tierColor = (tier: string): string => {
   switch (tier) {
     case "platinum": return "#66ffcc";
@@ -57,14 +56,24 @@ const actionBadge = (action: string): { label: string; color: string } => {
   }
 };
 
-const confidenceBar = (score: number): string => {
-  const pct = Math.round(score * 100);
+const confidenceBar = (conf: string | number): string => {
+  // Backend sends confidence as string label ("none","low","good","strong")
+  // and score as a float 0-1. Handle both gracefully.
+  if (typeof conf === "string") {
+    const map: Record<string, string> = {
+      "strong": "████████░░ strong",
+      "good":   "██████░░░░ good",
+      "low":    "████░░░░░░ low",
+      "none":   "██░░░░░░░░ none",
+    };
+    return map[conf.toLowerCase()] || `██░░░░░░░░ ${conf}`;
+  }
+  const pct = Math.round((conf || 0) * 100);
   if (pct >= 85) return `🟢 ${pct}%`;
   if (pct >= 70) return `🟡 ${pct}%`;
   return `🔴 ${pct}%`;
 };
 
-// ── Component ────────────────────────────────────────────────
 const AutoOptimisePanel: React.FC = () => {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -73,14 +82,13 @@ const AutoOptimisePanel: React.FC = () => {
   const [filter, setFilter] = useState<"all" | "recommend" | "suggest" | "ok">("all");
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
 
-  // ── Scan ─────────────────────────────────────────────────
   const doScan = async () => {
     setLoading(true);
     setScanResult(null);
     setAppliedIds(new Set());
     try {
       const raw = await protonScan();
-      const r = JSON.parse(raw);
+      const r = typeof raw === "string" ? JSON.parse(raw) : raw;
       if (r.ok) {
         setScanResult(r.value as ScanResult);
         const s = r.value.stats;
@@ -94,11 +102,10 @@ const AutoOptimisePanel: React.FC = () => {
     setLoading(false);
   };
 
-  // ── Apply Single ─────────────────────────────────────────
   const doApplySingle = async (g: GameResult) => {
     try {
       const raw = await protonApply(g.appid, g.recommended_proton, dryRun);
-      const r = JSON.parse(raw);
+      const r = typeof raw === "string" ? JSON.parse(raw) : raw;
       if (r.ok) {
         if (dryRun) {
           info(`[DRY RUN] ${g.name} → ${g.recommended_proton}`);
@@ -114,7 +121,6 @@ const AutoOptimisePanel: React.FC = () => {
     }
   };
 
-  // ── Apply All ────────────────────────────────────────────
   const doApplyAll = async (actionType: "recommend" | "both") => {
     if (!scanResult) return;
     setApplying(true);
@@ -129,7 +135,7 @@ const AutoOptimisePanel: React.FC = () => {
     }));
     try {
       const raw = await protonApplyAll(JSON.stringify(payload), dryRun);
-      const r = JSON.parse(raw);
+      const r = typeof raw === "string" ? JSON.parse(raw) : raw;
       if (r.ok) {
         const res = r.value;
         if (dryRun) {
@@ -149,10 +155,9 @@ const AutoOptimisePanel: React.FC = () => {
     setApplying(false);
   };
 
-  // ── Filtered Games ───────────────────────────────────────
   const filteredGames = scanResult
     ? scanResult.games.filter((g) => {
-        if (g.native) return false;
+        if (g.is_native) return false;
         if (filter === "all") return true;
         if (filter === "ok") return g.action === "none";
         return g.action === filter;
@@ -161,15 +166,13 @@ const AutoOptimisePanel: React.FC = () => {
 
   const stats = scanResult?.stats;
 
-  // ── Render ───────────────────────────────────────────────
   return (
     <>
-      {/* Controls */}
       <PanelSection title="🤖 Auto-Optimise">
         <PanelSectionRow>
           <ToggleField
             label="Dry Run Mode"
-            description={dryRun ? "Preview only — nothing will be changed" : "⚠️ LIVE — changes will be written to Steam config"}
+            description={dryRun ? "Preview only — nothing changed" : "⚠ LIVE — writes to Steam config"}
             checked={dryRun}
             onChange={setDryRun}
           />
@@ -181,7 +184,6 @@ const AutoOptimisePanel: React.FC = () => {
         </PanelSectionRow>
       </PanelSection>
 
-      {/* Stats Summary */}
       {stats && (
         <PanelSection title="📊 Scan Results">
           <PanelSectionRow>
@@ -192,30 +194,20 @@ const AutoOptimisePanel: React.FC = () => {
               <div style={{ color: "#ffaa00" }}>🟡 <strong>{stats.suggest}</strong> suggestions</div>
               <div>🐧 <strong>{stats.native}</strong> native Linux</div>
               <div style={{ color: "#888", marginTop: 4 }}>
-                GE: {stats.ge_installed.join(", ") || "none"}
+                GE: {((stats.ge_installed || []) || []).join(", ") || "none"}
               </div>
             </div>
           </PanelSectionRow>
-
-          {/* Batch Apply Buttons */}
           {stats.recommend > 0 && (
             <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                onClick={() => doApplyAll("recommend")}
-                disabled={applying}
-              >
+              <ButtonItem layout="below" onClick={() => doApplyAll("recommend")} disabled={applying}>
                 {applying ? "⏳ Applying..." : `🔴 Apply ${stats.recommend} Recommended`}
               </ButtonItem>
             </PanelSectionRow>
           )}
           {(stats.recommend + stats.suggest) > 0 && (
             <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                onClick={() => doApplyAll("both")}
-                disabled={applying}
-              >
+              <ButtonItem layout="below" onClick={() => doApplyAll("both")} disabled={applying}>
                 {applying ? "⏳ Applying..." : `⚡ Apply All ${stats.recommend + stats.suggest} Changes`}
               </ButtonItem>
             </PanelSectionRow>
@@ -223,39 +215,35 @@ const AutoOptimisePanel: React.FC = () => {
         </PanelSection>
       )}
 
-      {/* Filter Tabs */}
       {scanResult && (
         <PanelSection title="🎮 Games">
           <PanelSectionRow>
-            <Focusable
-              flow-children="horizontal"
-              style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
-            >
+            <Focusable style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
               {(["all", "recommend", "suggest", "ok"] as const).map((f) => (
-                <button
+                <Focusable
                   key={f}
+                  onActivate={() => setFilter(f)}
                   onClick={() => setFilter(f)}
                   style={{
                     background: filter === f ? "#0af" : "#333",
                     color: filter === f ? "#000" : "#aaa",
-                    border: "none",
                     borderRadius: "4px",
                     padding: "4px 10px",
                     fontSize: 11,
                     fontWeight: filter === f ? 700 : 400,
                     cursor: "pointer",
+                    textAlign: "center" as const,
                   }}
                 >
-                  {f === "all" ? `All (${scanResult.games.filter((g) => !g.native).length})`
+                  {f === "all" ? `All (${scanResult.games.filter((g) => !g.is_native).length})`
                     : f === "recommend" ? `Rec (${stats?.recommend ?? 0})`
                     : f === "suggest" ? `Sug (${stats?.suggest ?? 0})`
                     : `OK (${stats?.ok ?? 0})`}
-                </button>
+                </Focusable>
               ))}
             </Focusable>
           </PanelSectionRow>
 
-          {/* Game List */}
           <div style={{ maxHeight: 350, overflow: "auto" }}>
             {filteredGames.map((g) => {
               const badge = actionBadge(g.action);
@@ -270,9 +258,9 @@ const AutoOptimisePanel: React.FC = () => {
                       padding: "6px 0",
                       borderBottom: "1px solid #222",
                       opacity: applied ? 0.5 : 1,
+                      width: "100%",
                     }}
                   >
-                    {/* Row 1: Name + Tier */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ color: "#eee", fontSize: 12, fontWeight: 600, flex: 1 }}>
                         {g.name}
@@ -287,16 +275,12 @@ const AutoOptimisePanel: React.FC = () => {
                         {g.tier}
                       </span>
                     </div>
-
-                    {/* Row 2: Proton change + confidence */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
                       <span style={{ color: "#888" }}>
                         {g.current_proton} → <span style={{ color: "#0af" }}>{g.recommended_proton}</span>
                       </span>
                       <span style={{ color: "#888" }}>{confidenceBar(g.confidence)}</span>
                     </div>
-
-                    {/* Row 3: Action badge + Apply button */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
                       <span style={{
                         background: badge.color,
@@ -305,25 +289,27 @@ const AutoOptimisePanel: React.FC = () => {
                         fontWeight: 700,
                         padding: "1px 6px",
                         borderRadius: "3px",
+                        display: "inline-block",
                       }}>
                         {applied ? "✅ APPLIED" : badge.label}
                       </span>
                       {g.action !== "none" && !applied && (
-                        <button
+                        <Focusable
+                          onActivate={() => doApplySingle(g)}
                           onClick={() => doApplySingle(g)}
                           style={{
                             background: g.action === "recommend" ? "#ff4444" : "#ffaa00",
                             color: "#000",
-                            border: "none",
                             borderRadius: "4px",
                             padding: "3px 10px",
                             fontSize: 10,
                             fontWeight: 700,
                             cursor: "pointer",
+                            textAlign: "center" as const,
                           }}
                         >
                           {dryRun ? "Preview" : "Apply"}
-                        </button>
+                        </Focusable>
                       )}
                     </div>
                   </Focusable>
