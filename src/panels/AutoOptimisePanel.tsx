@@ -1,112 +1,69 @@
-import React from "react";
-import { useState, FC } from "react";
+import React, { useState } from "react";
 import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
-  TextField,
+  ToggleField,
 } from "@decky/ui";
-import { getRecommendation, applyRecommendation } from "../backend";
+import { scanProtonAdvisor, getSettings, saveSettings } from "../backend";
+import { success, fail, info } from "../toast";
 
-const TIER_COLORS: Record<string, string> = {
-  platinum: "#b4c7dc",
-  gold: "#cfb53b",
-  silver: "#c0c0c0",
-  bronze: "#cd7f32",
-  borked: "#ff4444",
-  unknown: "#888888",
-};
+const AutoOptimisePanel: React.FC = () => {
+  const [scanning, setScanning] = useState(false);
+  const [results, setResults] = useState<string[]>([]);
+  const [autoApply, setAutoApply] = useState(false);
 
-export const AutoOptimisePanel: FC = () => {
-  const [appid, setAppid] = useState("");
-  const [rec, setRec] = useState<any>(null);
-  const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleScan = async () => {
-    if (!appid.trim()) {
-      setStatus("Enter a Steam AppID");
-      return;
-    }
-    setLoading(true);
-    setStatus("Fetching recommendation...");
+  const doScan = async () => {
+    setScanning(true);
+    info("Scanning game library...");
     try {
-      const raw = await getRecommendation(appid.trim());
-      const d = JSON.parse(raw);
-      setRec(d);
-      setStatus(`Tier: ${d.tier.toUpperCase()}`);
-    } catch {
-      setStatus("Failed to get recommendation");
-    }
-    setLoading(false);
+      const r = JSON.parse(await scanProtonAdvisor());
+      if (r.ok) {
+        setResults(r.value || []);
+        success(`Scan complete: ${(r.value || []).length} suggestions`);
+      } else fail(r.error);
+    } catch (e) { fail(`Scan error: ${e}`); }
+    setScanning(false);
   };
 
-  const handleApply = async () => {
-    if (!appid.trim()) return;
-    setLoading(true);
-    setStatus("Applying...");
+  const toggleAuto = async (v: boolean) => {
+    setAutoApply(v);
     try {
-      const raw = await applyRecommendation(appid.trim());
-      const d = JSON.parse(raw);
-      setStatus(d.success ? "Settings applied! ✅" : "Apply failed");
-    } catch {
-      setStatus("Apply failed");
-    }
-    setLoading(false);
+      const curr = JSON.parse(await getSettings());
+      const s = curr.ok ? curr.value : {};
+      s.auto_optimise = v;
+      const r = JSON.parse(await saveSettings(JSON.stringify(s)));
+      r.ok ? success(`Auto-optimise ${v ? "ON" : "OFF"}`) : fail(r.error);
+    } catch (e) { fail(`Settings error: ${e}`); }
   };
 
   return (
     <>
       <PanelSection title="🤖 Auto-Optimise">
         <PanelSectionRow>
-          <TextField
-            label="Steam AppID"
-            value={appid}
-            onChange={(e) => setAppid(e.target.value)}
+          <ToggleField
+            label="Auto-apply on game launch"
+            checked={autoApply}
+            onChange={toggleAuto}
           />
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={loading} onClick={handleScan}>
-            🔍 Get Recommendation
+          <ButtonItem layout="below" onClick={doScan} disabled={scanning}>
+            {scanning ? "Scanning..." : "Scan Library"}
           </ButtonItem>
         </PanelSectionRow>
-
-        {rec && (
-          <>
-            <PanelSectionRow>
-              <div style={{ width: "100%", padding: "8px", background: "#1a1a2e", borderRadius: "8px" }}>
-                <div style={{ textAlign: "center", marginBottom: "8px" }}>
-                  <span style={{
-                    color: TIER_COLORS[rec.tier] || "#888",
-                    fontWeight: "bold", fontSize: "18px"
-                  }}>
-                    {rec.tier.toUpperCase()}
-                  </span>
-                </div>
-                <div style={{ fontSize: "12px", color: "#ccc", lineHeight: "1.6" }}>
-                  <div>⚡ TDP: {rec.tdp}W</div>
-                  <div>🎮 GPU: {rec.gpu_clock}MHz</div>
-                  <div>🎞️ LSFG: {rec.lsfg_enabled ? `${rec.lsfg_multiplier}x @ ${rec.lsfg_flow_rate}%` : "Off"}</div>
-                  <div>🍷 Proton: {rec.proton}</div>
-                </div>
-              </div>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" disabled={loading} onClick={handleApply}>
-                ✅ Apply These Settings
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        )}
-
-        {status && (
-          <PanelSectionRow>
-            <div style={{ textAlign: "center", color: "#1a9fff", fontSize: "12px" }}>
-              {loading ? "⏳ " : ""}{status}
-            </div>
-          </PanelSectionRow>
-        )}
       </PanelSection>
+      {results.length > 0 && (
+        <PanelSection title="Suggestions">
+          {results.map((r, i) => (
+            <PanelSectionRow key={i}>
+              <div style={{ color: "#ccc", fontSize: 12 }}>💡 {r}</div>
+            </PanelSectionRow>
+          ))}
+        </PanelSection>
+      )}
     </>
   );
 };
+
+export default AutoOptimisePanel;

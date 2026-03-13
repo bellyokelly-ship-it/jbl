@@ -1,73 +1,94 @@
-import React from "react";
-import { definePlugin, staticClasses } from "@decky/ui";
-import { routerHook } from "@decky/api";
-import { useState, FC } from "react";
+import React, { useState } from "react";
+import {
+  staticClasses,
+  PanelSection,
+  PanelSectionRow,
+  Focusable,
+  ButtonItem,
+} from "@decky/ui";
+import { definePlugin } from "@decky/ui";
 import { FaRocket } from "react-icons/fa";
+import PowerPanel from "./panels/PowerPanel";
+import LSFGPanel from "./panels/LSFGPanel";
+import ProtonPanel from "./panels/ProtonPanel";
+import HealthPanel from "./panels/HealthPanel";
+import ProfilesPanel from "./panels/ProfilesPanel";
+import AutoOptimisePanel from "./panels/AutoOptimisePanel";
 
-import { PowerShiftPanel } from "./panels/PowerShiftPanel";
-import { LSFGPanel } from "./panels/LSFGPanel";
-import { ProtonPanel } from "./panels/ProtonPanel";
-import { HealthPanel } from "./panels/HealthPanel";
-import { ProfilesPanel } from "./panels/ProfilesPanel";
-import { AutoOptimisePanel } from "./panels/AutoOptimisePanel";
-
-type Tab = "power" | "lsfg" | "proton" | "health" | "profiles" | "auto";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "power", label: "⚡ Power" },
-  { id: "lsfg", label: "🎞️ LSFG" },
-  { id: "proton", label: "🍷 Proton" },
-  { id: "health", label: "❤️ Health" },
+const TABS = [
+  { id: "power",    label: "⚡ Power" },
+  { id: "lsfg",     label: "🎞 LSFG" },
+  { id: "proton",   label: "🧪 Proton" },
+  { id: "health",   label: "🌡 Health" },
   { id: "profiles", label: "💾 Profiles" },
-  { id: "auto", label: "🤖 Auto" },
+  { id: "auto",     label: "🤖 Auto" },
 ];
 
-const JBLContent: FC = () => {
-  const [tab, setTab] = useState<Tab>("power");
+const Content: React.FC = () => {
+  const [tab, setTab] = useState("power");
+
+  const renderPanel = () => {
+    switch (tab) {
+      case "power":    return <PowerPanel />;
+      case "lsfg":     return <LSFGPanel />;
+      case "proton":   return <ProtonPanel />;
+      case "health":   return <HealthPanel />;
+      case "profiles": return <ProfilesPanel />;
+      case "auto":     return <AutoOptimisePanel />;
+      default:         return <PowerPanel />;
+    }
+  };
 
   return (
-    <div>
-      <div style={{
-        display: "flex", flexWrap: "wrap", gap: "6px",
-        justifyContent: "center", padding: "8px 4px", marginBottom: "4px"
-      }}>
-        {TABS.map((t) => (
-          <span
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              cursor: "pointer",
-              padding: "6px 10px",
-              borderRadius: "6px",
-              background: tab === t.id ? "#1a9fff" : "#2a2a3e",
-              color: tab === t.id ? "#fff" : "#aaa",
-              fontSize: "12px",
-              fontWeight: tab === t.id ? "bold" : "normal",
-              transition: "all 0.2s ease",
-            }}
-          >
-            {t.label}
-          </span>
-        ))}
-      </div>
-      {tab === "power" && <PowerShiftPanel />}
-      {tab === "lsfg" && <LSFGPanel />}
-      {tab === "proton" && <ProtonPanel />}
-      {tab === "health" && <HealthPanel />}
-      {tab === "profiles" && <ProfilesPanel />}
-      {tab === "auto" && <AutoOptimisePanel />}
-    </div>
+    <>
+      <PanelSection>
+        <Focusable
+          flow-children="horizontal"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: "6px",
+            padding: "4px 0",
+          }}
+        >
+          {TABS.map((t) => (
+            <ButtonItem
+              key={t.id}
+              layout="below"
+              onClick={() => setTab(t.id)}
+              style={{
+                minWidth: 0,
+                padding: "8px 4px",
+                fontSize: "11px",
+                textAlign: "center",
+                background: tab === t.id
+                  ? "linear-gradient(135deg, #00d4aa, #0088ff)"
+                  : "#23262e",
+                color: tab === t.id ? "#000" : "#b8bcbf",
+                borderRadius: "6px",
+                fontWeight: tab === t.id ? "bold" : "normal",
+              }}
+            >
+              {t.label}
+            </ButtonItem>
+          ))}
+        </Focusable>
+      </PanelSection>
+      {renderPanel()}
+      <PanelSection>
+        <PanelSectionRow>
+          <div style={{ textAlign: "center", color: "#444", fontSize: 10, marginTop: 8 }}>
+            JBL v0.5.0 — Jimmy\'s Big Load
+          </div>
+        </PanelSectionRow>
+      </PanelSection>
+    </>
   );
 };
 
-export default definePlugin(() => {
-  return {
-    name: "Jimmy's Big Load",
-    title: <div className={staticClasses.Title}>Jimmy's Big Load</div>,
-    content: <JBLContent />,
-    icon: <FaRocket />,
-    onDismount() {
-      routerHook.removeRoute("/jbl");
-    },
-  };
-});
+export default definePlugin(() => ({
+  name: "JBL",
+  title: <div className={staticClasses.Title}>Jimmy\'s Big Load</div>,
+  content: <Content />,
+  icon: <FaRocket />,
+}));

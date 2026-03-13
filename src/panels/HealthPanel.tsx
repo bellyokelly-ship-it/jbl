@@ -1,5 +1,4 @@
-import React from "react";
-import { useState, useEffect, FC } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -7,69 +6,89 @@ import {
 } from "@decky/ui";
 import { getHealth } from "../backend";
 
-const Bar: FC<{ label: string; value: number; max: number; unit: string; color: string }> = ({ label, value, max, unit, color }) => (
-  <div style={{ marginBottom: "8px" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "2px" }}>
-      <span>{label}</span>
-      <span style={{ color }}>{value}{unit}</span>
-    </div>
-    <div style={{ background: "#333", borderRadius: "4px", height: "8px", overflow: "hidden" }}>
-      <div style={{
-        width: `${Math.min((value / max) * 100, 100)}%`,
-        height: "100%",
-        background: color,
-        borderRadius: "4px",
-        transition: "width 0.3s ease"
-      }} />
-    </div>
-  </div>
-);
+interface HealthData {
+  cpu_temp: number;
+  gpu_temp: number;
+  fan_rpm: number;
+  battery_pct: number;
+  battery_health: string;
+  battery_time: string;
+}
 
-export const HealthPanel: FC = () => {
-  const [data, setData] = useState<any>(null);
-  const [auto, setAuto] = useState(true);
+const HealthPanel: React.FC = () => {
+  const [data, setData] = useState<HealthData | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refresh = async () => {
+  const poll = async () => {
     try {
-      const raw = await getHealth();
-      setData(JSON.parse(raw));
+      const r = JSON.parse(await getHealth());
+      if (r.ok) setData(r.value);
     } catch {}
   };
 
   useEffect(() => {
-    refresh();
-    if (auto) {
-      const iv = setInterval(refresh, 3000);
-      return () => clearInterval(iv);
-    }
-  }, [auto]);
+    poll();
+    timer.current = setInterval(poll, 3000);
+    return () => { if (timer.current) clearInterval(timer.current); };
+  }, []);
 
-  if (!data) return <PanelSection title="❤️ Health"><PanelSectionRow><div>Loading...</div></PanelSectionRow></PanelSection>;
-
-  const batColor = data.battery > 50 ? "#00e676" : data.battery > 20 ? "#ffab00" : "#ff4444";
-  const cpuColor = data.cpu_temp < 70 ? "#00e676" : data.cpu_temp < 85 ? "#ffab00" : "#ff4444";
-  const gpuColor = data.gpu_temp < 70 ? "#00e676" : data.gpu_temp < 85 ? "#ffab00" : "#ff4444";
-
-  return (
-    <PanelSection title="❤️ System Health">
+  const bar = (label: string, val: number, max: number, unit: string, warn: number) => {
+    const pct = Math.min((val / max) * 100, 100);
+    const color = val >= warn ? "#ff4444" : val >= warn * 0.8 ? "#ffaa00" : "#00d4aa";
+    return (
       <PanelSectionRow>
         <div style={{ width: "100%" }}>
-          <Bar label={`🔋 Battery (${data.battery_status})`} value={data.battery} max={100} unit="%" color={batColor} />
-          {data.est_minutes >= 0 && (
-            <div style={{ fontSize: "11px", color: "#aaa", textAlign: "right", marginTop: "-4px", marginBottom: "6px" }}>
-              ~{Math.floor(data.est_minutes / 60)}h {data.est_minutes % 60}m remaining
-            </div>
-          )}
-          <Bar label="🌡️ CPU Temp" value={data.cpu_temp} max={105} unit="°C" color={cpuColor} />
-          <Bar label="🎮 GPU Temp" value={data.gpu_temp} max={105} unit="°C" color={gpuColor} />
-          <Bar label="🌀 Fan" value={data.fan_rpm} max={5000} unit=" RPM" color="#1a9fff" />
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span>{label}</span>
+            <span style={{ color }}>{val}{unit}</span>
+          </div>
+          <div style={{ background: "#1a1a2e", borderRadius: 4, height: 8, overflow: "hidden" }}>
+            <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.5s" }} />
+          </div>
         </div>
       </PanelSectionRow>
-      <PanelSectionRow>
-        <ButtonItem layout="below" onClick={refresh}>
-          🔄 Refresh Now
-        </ButtonItem>
-      </PanelSectionRow>
-    </PanelSection>
+    );
+  };
+
+  return (
+    <>
+      <PanelSection title="🌡 System Health">
+        {data ? (
+          <>
+            {bar("CPU Temp", data.cpu_temp, 105, "°C", 85)}
+            {bar("GPU Temp", data.gpu_temp, 105, "°C", 80)}
+            {bar("Fan", data.fan_rpm, 5000, " RPM", 4000)}
+          </>
+        ) : (
+          <PanelSectionRow>
+            <div style={{ color: "#888" }}>Loading...</div>
+          </PanelSectionRow>
+        )}
+      </PanelSection>
+      <PanelSection title="🔋 Battery">
+        {data ? (
+          <>
+            {bar("Charge", data.battery_pct, 100, "%", 101)}
+            <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                <span>Health</span><span style={{ color: "#00d4aa" }}>{data.battery_health}</span>
+              </div>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                <span>Remaining</span><span>{data.battery_time}</span>
+              </div>
+            </PanelSectionRow>
+          </>
+        ) : null}
+      </PanelSection>
+      <PanelSection>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={poll}>🔄 Refresh Now</ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+    </>
   );
 };
+
+export default HealthPanel;

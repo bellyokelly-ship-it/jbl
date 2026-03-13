@@ -1,5 +1,4 @@
-import React from "react";
-import { useState, useEffect, FC } from "react";
+import React, { useState, useEffect } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -7,30 +6,31 @@ import {
   ToggleField,
 } from "@decky/ui";
 import { getLsfg, setLsfg } from "../backend";
+import { success, fail } from "../toast";
 
-export const LSFGPanel: FC = () => {
+const LSFGPanel: React.FC = () => {
   const [enabled, setEnabled] = useState(false);
   const [multiplier, setMultiplier] = useState(2);
   const [flowRate, setFlowRate] = useState(50);
-  const [status, setStatus] = useState("");
 
-  const refresh = async () => {
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = JSON.parse(await getLsfg());
+        if (r.ok) {
+          setEnabled(r.value.enabled);
+          setMultiplier(r.value.multiplier);
+          setFlowRate(r.value.flow_rate);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const apply = async (en: boolean, mul: number, flow: number) => {
     try {
-      const raw = await getLsfg();
-      const d = JSON.parse(raw);
-      setEnabled(d.enabled);
-      setMultiplier(d.multiplier);
-      setFlowRate(d.flow_rate);
-    } catch (e) {
-      setStatus("Failed to read LSFG config");
-    }
-  };
-
-  useEffect(() => { refresh(); }, []);
-
-  const apply = async (en: boolean, mult: number, flow: number) => {
-    await setLsfg(en, mult, flow);
-    setStatus(en ? `LSFG: ${mult}x @ ${flow}%` : "LSFG: Off");
+      const r = JSON.parse(await setLsfg(en, mul, flow));
+      r.ok ? success(`LSFG ${en ? "ON" : "OFF"} — ${mul}x @ ${flow}%`) : fail(`LSFG: ${r.error}`);
+    } catch (e) { fail(`LSFG error: ${e}`); }
   };
 
   return (
@@ -39,45 +39,33 @@ export const LSFGPanel: FC = () => {
         <ToggleField
           label="Enable LSFG"
           checked={enabled}
-          onChange={(val) => {
-            setEnabled(val);
-            apply(val, multiplier, flowRate);
-          }}
+          onChange={(v) => { setEnabled(v); apply(v, multiplier, flowRate); }}
         />
       </PanelSectionRow>
       <PanelSectionRow>
         <SliderField
-          label={`Multiplier: ${multiplier}x`}
+          label="Multiplier"
           value={multiplier}
-          min={2}
+          min={1}
           max={4}
           step={1}
-          onChange={(val) => {
-            setMultiplier(val);
-            if (enabled) apply(enabled, val, flowRate);
-          }}
+          onChange={(v) => { setMultiplier(v); if (enabled) apply(enabled, v, flowRate); }}
+          showValue
         />
       </PanelSectionRow>
       <PanelSectionRow>
         <SliderField
-          label={`Flow Rate: ${flowRate}%`}
+          label="Flow Rate (%)"
           value={flowRate}
-          min={0}
+          min={10}
           max={100}
           step={5}
-          onChange={(val) => {
-            setFlowRate(val);
-            if (enabled) apply(enabled, multiplier, val);
-          }}
+          onChange={(v) => { setFlowRate(v); if (enabled) apply(enabled, multiplier, v); }}
+          showValue
         />
       </PanelSectionRow>
-      {status && (
-        <PanelSectionRow>
-          <div style={{ textAlign: "center", color: "#1a9fff", fontSize: "12px" }}>
-            {status}
-          </div>
-        </PanelSectionRow>
-      )}
     </PanelSection>
   );
 };
+
+export default LSFGPanel;
