@@ -557,7 +557,12 @@ class Plugin:
     # ─── LIFECYCLE ────────────────────────────────────────────────
 
     async def _main(self):
-        logger.info("JBL Phase 1.3 loaded")
+        """Runs on plugin load — fix ownership Decky forces to root."""
+        import subprocess
+        plugin_dir = os.path.dirname(os.path.realpath(__file__))
+        subprocess.run(["chown", "-R", "deck:deck", plugin_dir], capture_output=True)
+        logger.info("JBL: ownership fixed to deck:deck")
+
 
     async def _unload(self):
         logger.info("JBL unloaded")
