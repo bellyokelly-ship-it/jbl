@@ -3,100 +3,104 @@ import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
-  DropdownItem,
+  Focusable,
 } from "@decky/ui";
 import { getProtonVersions, fetchProtonReleases, installProton, removeProton } from "../backend";
 import { success, fail, info } from "../toast";
 
-interface ProtonVer { name: string; }
-interface Release { tag: string; url: string; }
+interface InstalledVersion { name: string; }
+interface RemoteRelease { tag: string; url: string; size_mb: number; date: string; notes: string; }
 
 const ProtonPanel: React.FC = () => {
-  const [installed, setInstalled] = useState<ProtonVer[]>([]);
-  const [releases, setReleases] = useState<Release[]>([]);
-  const [selRelease, setSelRelease] = useState<Release | null>(null);
+  const [installed, setInstalled] = useState<InstalledVersion[]>([]);
+  const [releases, setReleases] = useState<RemoteRelease[]>([]);
   const [loading, setLoading] = useState(false);
+  const [installing, setInstalling] = useState("");
 
   const loadInstalled = async () => {
     try {
       const r = JSON.parse(await getProtonVersions());
-      if (r.ok) setInstalled(r.value || []);
+      if (r.ok) setInstalled(r.value);
     } catch {}
   };
 
-  useEffect(() => { loadInstalled(); }, []);
-
-  const doFetch = async () => {
+  const loadReleases = async () => {
     setLoading(true);
-    info("Fetching Proton-GE releases...");
     try {
-      const r = JSON.parse(await fetchProtonReleases(5));
-      if (r.ok) { setReleases(r.value || []); success(`Found ${r.value.length} releases`); }
-      else fail(r.error);
-    } catch (e) { fail(`Fetch error: ${e}`); }
+      const r = JSON.parse(await fetchProtonReleases(20));
+      if (r.ok) setReleases(r.value);
+    } catch {}
     setLoading(false);
   };
 
-  const doInstall = async () => {
-    if (!selRelease) return;
-    setLoading(true);
-    info(`Installing ${selRelease.tag}...`);
+  useEffect(() => { loadInstalled(); loadReleases(); }, []);
+
+  const isInstalled = (tag: string) => installed.some((v) => v.name === tag);
+
+  const handleInstall = async (rel: RemoteRelease) => {
+    setInstalling(rel.tag);
+    info(`Installing ${rel.tag} (${rel.size_mb}MB)...`);
     try {
-      const r = JSON.parse(await installProton(selRelease.url, selRelease.tag));
-      r.ok ? success(`Installed ${selRelease.tag}`) : fail(r.error);
-      loadInstalled();
+      const r = JSON.parse(await installProton(rel.url, rel.tag));
+      r.ok ? success(r.value) : fail(r.error);
+      await loadInstalled();
     } catch (e) { fail(`Install error: ${e}`); }
-    setLoading(false);
+    setInstalling("");
   };
 
-  const doRemove = async (name: string) => {
+  const handleRemove = async (name: string) => {
     try {
       const r = JSON.parse(await removeProton(name));
-      r.ok ? success(`Removed ${name}`) : fail(r.error);
-      loadInstalled();
+      r.ok ? success(r.value) : fail(r.error);
+      await loadInstalled();
     } catch (e) { fail(`Remove error: ${e}`); }
   };
 
   return (
     <>
-      <PanelSection title="🧪 Proton-GE Manager">
-        <PanelSectionRow>
-          <ButtonItem layout="below" onClick={doFetch} disabled={loading}>
-            {loading ? "Checking..." : "Check for Updates"}
-          </ButtonItem>
-        </PanelSectionRow>
-        {releases.length > 0 && (
-          <>
-            <PanelSectionRow>
-              <DropdownItem
-                label="Available"
-                rgOptions={releases.map((r) => ({ label: r.tag, data: r }))}
-                selectedOption={selRelease}
-                onChange={(v) => setSelRelease(v.data)}
-              />
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={doInstall} disabled={loading || !selRelease}>
-                Install Selected
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        )}
-      </PanelSection>
-      <PanelSection title="Installed">
-        {installed.length === 0 ? (
+      <PanelSection title={`🧪 Installed (${installed.length})`}>
+        {installed.length === 0 && (
           <PanelSectionRow>
-            <div style={{ color: "#888" }}>No Proton-GE versions found</div>
+            <div style={{ color: "#888", fontSize: 12 }}>No Proton-GE versions installed</div>
           </PanelSectionRow>
-        ) : (
-          installed.map((v) => (
-            <PanelSectionRow key={v.name}>
-              <ButtonItem layout="below" onClick={() => doRemove(v.name)}>
-                🗑️ {v.name}
-              </ButtonItem>
-            </PanelSectionRow>
-          ))
         )}
+        {installed.map((v) => (
+          <PanelSectionRow key={v.name}>
+            <ButtonItem
+              layout="below"
+              onClick={() => handleRemove(v.name)}
+              description="Tap to remove"
+            >
+              ✅ {v.name}
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
+      </PanelSection>
+
+      <PanelSection title={`📦 Available (${releases.length})`}>
+        {loading && (
+          <PanelSectionRow>
+            <div style={{ color: "#0af", fontSize: 12 }}>Loading releases...</div>
+          </PanelSectionRow>
+        )}
+        {releases.map((rel) => (
+          <PanelSectionRow key={rel.tag}>
+            <ButtonItem
+              layout="below"
+              disabled={isInstalled(rel.tag) || installing === rel.tag}
+              onClick={() => handleInstall(rel)}
+              description={
+                isInstalled(rel.tag)
+                  ? "Already installed"
+                  : installing === rel.tag
+                  ? "Installing..."
+                  : `${rel.date} · ${rel.size_mb}MB`
+              }
+            >
+              {isInstalled(rel.tag) ? "✅" : installing === rel.tag ? "⏳" : "📥"} {rel.tag}
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
       </PanelSection>
     </>
   );

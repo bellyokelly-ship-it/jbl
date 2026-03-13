@@ -3,68 +3,126 @@ import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
-  TextField,
+  DropdownItem,
 } from "@decky/ui";
-import { listGameProfiles, saveGameProfile, deleteGameProfile } from "../backend";
-import { success, fail } from "../toast";
+import {
+  scanGames, listGameProfiles, getGameProfile,
+  saveGameProfile, deleteGameProfile, getTdp, getGpuClock, getLsfg
+} from "../backend";
+import { success, fail, info } from "../toast";
 
-interface Profile { name: string; }
+interface Game { appid: string; name: string; }
 
 const ProfilesPanel: React.FC = () => {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [newName, setNewName] = useState("");
+  const [games, setGames] = useState<Game[]>([]);
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [selectedGame, setSelectedGame] = useState<string>("");
+  const [loading, setLoading] = useState(false);
 
   const load = async () => {
+    setLoading(true);
     try {
-      const r = JSON.parse(await listGameProfiles());
-      if (r.ok) setProfiles((r.value || []).map((n: string) => ({ name: n })));
+      const gr = JSON.parse(await scanGames());
+      if (gr.ok) setGames(gr.value);
+
+      const pr = JSON.parse(await listGameProfiles());
+      if (pr.ok) setProfiles(pr.value);
     } catch {}
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
-  const doSave = async () => {
-    if (!newName.trim()) { fail("Enter a profile name"); return; }
+  const saveCurrentAsProfile = async () => {
+    if (!selectedGame) { fail("Select a game first"); return; }
     try {
-      const r = JSON.parse(await saveGameProfile(newName.trim(), "{}"));
-      r.ok ? success(`Saved: ${newName.trim()}`) : fail(r.error);
-      setNewName("");
-      load();
+      const tdpR = JSON.parse(await getTdp());
+      const gpuR = JSON.parse(await getGpuClock());
+      const lsfgR = JSON.parse(await getLsfg());
+
+      const settings = {
+        tdp: tdpR.ok ? tdpR.value : 15,
+        gpu: gpuR.ok ? gpuR.value : 1600,
+        lsfg: lsfgR.ok ? lsfgR.value : { enabled: false, multiplier: 2, flow_rate: 50 },
+        saved_at: new Date().toISOString(),
+      };
+
+      const r = JSON.parse(await saveGameProfile(selectedGame, JSON.stringify(settings)));
+      if (r.ok) {
+        success(`Profile saved for ${selectedGame}`);
+        await load();
+      } else { fail(r.error); }
     } catch (e) { fail(`Save error: ${e}`); }
   };
 
-  const doDelete = async (name: string) => {
+  const handleDelete = async (name: string) => {
     try {
       const r = JSON.parse(await deleteGameProfile(name));
       r.ok ? success(`Deleted: ${name}`) : fail(r.error);
-      load();
+      await load();
     } catch (e) { fail(`Delete error: ${e}`); }
   };
 
+  const gameOptions = games.map((g) => ({
+    label: `${g.name} (${g.appid})`,
+    data: `${g.name} (${g.appid})`,
+  }));
+
   return (
     <>
-      <PanelSection title="💾 Game Profiles">
-        <PanelSectionRow>
-          <TextField label="New Profile" value={newName} onChange={(e) => setNewName(e.target.value)} />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" onClick={doSave}>Save Current Settings</ButtonItem>
-        </PanelSectionRow>
-      </PanelSection>
-      <PanelSection title="Saved Profiles">
-        {profiles.length === 0 ? (
+      <PanelSection title={`💾 Game Profiles (${games.length} games found)`}>
+        {loading ? (
           <PanelSectionRow>
-            <div style={{ color: "#888" }}>No profiles saved yet</div>
+            <div style={{ color: "#0af", fontSize: 12 }}>Scanning games...</div>
+          </PanelSectionRow>
+        ) : games.length === 0 ? (
+          <PanelSectionRow>
+            <div style={{ color: "#f88", fontSize: 12 }}>No games found — check steamapps path</div>
           </PanelSectionRow>
         ) : (
-          profiles.map((p) => (
-            <PanelSectionRow key={p.name}>
-              <ButtonItem layout="below" onClick={() => doDelete(p.name)}>
-                🗑️ {p.name}
+          <>
+            <PanelSectionRow>
+              <DropdownItem
+                label="Select Game"
+                rgOptions={gameOptions}
+                selectedOption={selectedGame}
+                onChange={(opt) => setSelectedGame(opt.data)}
+              />
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={saveCurrentAsProfile}>
+                💾 Save Current Settings to Profile
               </ButtonItem>
             </PanelSectionRow>
-          ))
+          </>
         )}
+      </PanelSection>
+
+      <PanelSection title={`📋 Saved Profiles (${profiles.length})`}>
+        {profiles.length === 0 && (
+          <PanelSectionRow>
+            <div style={{ color: "#888", fontSize: 12 }}>No profiles saved yet</div>
+          </PanelSectionRow>
+        )}
+        {profiles.map((name) => (
+          <PanelSectionRow key={name}>
+            <ButtonItem
+              layout="below"
+              onClick={() => handleDelete(name)}
+              description="Tap to delete"
+            >
+              📄 {name}
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
+      </PanelSection>
+
+      <PanelSection>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={load}>
+            🔄 Rescan Games
+          </ButtonItem>
+        </PanelSectionRow>
       </PanelSection>
     </>
   );
