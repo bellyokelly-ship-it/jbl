@@ -295,8 +295,9 @@ const AutoOptimisePanel: React.FC = () => {
                       </span>
                       {g.action !== "none" && !applied && (
                         <Focusable
-                          onActivate={() => doApplySingle(g)}
-                          onClick={() => doApplySingle(g)}
+                          onActivate={(e: any) => { e?.stopPropagation?.(); doApplySingle(g); }}
+                          onOKButton={(e: any) => { e?.stopPropagation?.(); doApplySingle(g); }}
+                          onGamepadFocus={() => {}}
                           style={{
                             background: g.action === "recommend" ? "#ff4444" : "#ffaa00",
                             color: "#000",
