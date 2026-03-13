@@ -1,151 +1,69 @@
+import React from "react";
+import { useState, useEffect, FC } from "react";
 import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
 } from "@decky/ui";
-import { callable } from "@decky/api";
-import { useState, useEffect, useRef } from "react";
-import { JBL, jblCard, jblCardGlow, jblHeader, jblHeaderTitle, jblHeaderSub, jblStatusBadge } from "../styles";
+import { getHealth } from "../backend";
 
-const getHealth = callable<[], {
-  cpu_temp_c: number;
-  gpu_temp_c: number;
-  fan_rpm: number;
-  battery: {
-    capacity_percent: number;
-    status: string;
-    power_draw_w: number;
-  };
-  timestamp: number;
-}>("get_health");
-
-const tempColor = (t: number): string => {
-  if (t < 55) return JBL.green;
-  if (t < 70) return JBL.cyan;
-  if (t < 80) return JBL.amber;
-  return JBL.red;
-};
-
-const battColor = (b: number): string => {
-  if (b > 60) return JBL.green;
-  if (b > 30) return JBL.amber;
-  return JBL.red;
-};
-
-const ProgressBar = ({ value, max, color, label }: { value: number; max: number; color: string; label: string }) => {
-  const pct = Math.min(100, Math.max(0, (value / max) * 100));
-  return (
-    <div style={{ marginBottom: "10px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-        <span style={{ fontSize: "11px", color: JBL.textSecondary }}>{label}</span>
-        <span style={{ fontSize: "12px", fontWeight: 700, color }}>{value}{max === 100 ? "%" : max > 200 ? " RPM" : "°C"}</span>
-      </div>
-      <div style={{
-        height: "6px",
-        borderRadius: "3px",
-        background: JBL.surfaceDark,
-        overflow: "hidden",
-      }}>
-        <div style={{
-          width: `${pct}%`,
-          height: "100%",
-          borderRadius: "3px",
-          background: `linear-gradient(90deg, ${color}88, ${color})`,
-          boxShadow: `0 0 8px ${color}44`,
-          transition: "width 0.5s ease",
-        }} />
-      </div>
+const Bar: FC<{ label: string; value: number; max: number; unit: string; color: string }> = ({ label, value, max, unit, color }) => (
+  <div style={{ marginBottom: "8px" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "2px" }}>
+      <span>{label}</span>
+      <span style={{ color }}>{value}{unit}</span>
     </div>
-  );
-};
+    <div style={{ background: "#333", borderRadius: "4px", height: "8px", overflow: "hidden" }}>
+      <div style={{
+        width: `${Math.min((value / max) * 100, 100)}%`,
+        height: "100%",
+        background: color,
+        borderRadius: "4px",
+        transition: "width 0.3s ease"
+      }} />
+    </div>
+  </div>
+);
 
-export const HealthPanel = () => {
-  const [health, setHealth] = useState<any>(null);
-  const [error, setError] = useState("");
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+export const HealthPanel: FC = () => {
+  const [data, setData] = useState<any>(null);
+  const [auto, setAuto] = useState(true);
 
   const refresh = async () => {
     try {
-      const res = await getHealth();
-      setHealth(res);
-      setError("");
-    } catch (e: any) {
-      setError(e.message || "Failed to read health");
-    }
+      const raw = await getHealth();
+      setData(JSON.parse(raw));
+    } catch {}
   };
 
   useEffect(() => {
     refresh();
-  }, []);
-
-  useEffect(() => {
-    if (autoRefresh) {
-      intervalRef.current = setInterval(refresh, 3000);
+    if (auto) {
+      const iv = setInterval(refresh, 3000);
+      return () => clearInterval(iv);
     }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [autoRefresh]);
+  }, [auto]);
 
-  const cpuTemp = health?.cpu_temp_c ?? -1;
-  const gpuTemp = health?.gpu_temp_c ?? -1;
-  const fanRpm = health?.fan_rpm ?? -1;
-  const battPct = health?.battery?.capacity_percent ?? -1;
-  const battStatus = health?.battery?.status ?? "Unknown";
-  const powerDraw = health?.battery?.power_draw_w ?? -1;
+  if (!data) return <PanelSection title="❤️ Health"><PanelSectionRow><div>Loading...</div></PanelSectionRow></PanelSection>;
+
+  const batColor = data.battery > 50 ? "#00e676" : data.battery > 20 ? "#ffab00" : "#ff4444";
+  const cpuColor = data.cpu_temp < 70 ? "#00e676" : data.cpu_temp < 85 ? "#ffab00" : "#ff4444";
+  const gpuColor = data.gpu_temp < 70 ? "#00e676" : data.gpu_temp < 85 ? "#ffab00" : "#ff4444";
 
   return (
-    <PanelSection>
-      <div style={jblCard}>
-        <div style={jblHeader}>
-          <div style={jblHeaderTitle}>🩺 System Health</div>
-          <div style={jblHeaderSub}>Live hardware monitoring</div>
-        </div>
-      </div>
-
-      {error ? (
-        <div style={{ ...jblCard, borderColor: JBL.red + "40" }}>
-          <span style={{ color: JBL.red, fontSize: "12px" }}>❌ {error}</span>
-        </div>
-      ) : !health ? (
-        <div style={jblCard}>
-          <span style={{ color: JBL.textMuted, fontSize: "12px" }}>Loading...</span>
-        </div>
-      ) : (
-        <>
-          <div style={jblCardGlow(tempColor(Math.max(cpuTemp, gpuTemp)))}>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: JBL.textPrimary, marginBottom: "8px" }}>🌡️ Thermals</div>
-            <ProgressBar value={cpuTemp} max={105} color={tempColor(cpuTemp)} label="CPU Temperature" />
-            <ProgressBar value={gpuTemp} max={105} color={tempColor(gpuTemp)} label="GPU Temperature" />
-          </div>
-
-          <div style={jblCard}>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: JBL.textPrimary, marginBottom: "8px" }}>🌀 Fan</div>
-            <ProgressBar value={fanRpm} max={5000} color={JBL.cyan} label="Fan Speed" />
-          </div>
-
-          <div style={jblCardGlow(battColor(battPct))}>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: JBL.textPrimary, marginBottom: "8px" }}>🔋 Battery</div>
-            <ProgressBar value={battPct} max={100} color={battColor(battPct)} label="Charge Level" />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
-              <span style={jblStatusBadge(battStatus === "Charging" ? JBL.green : JBL.cyan)}>
-                {battStatus === "Charging" ? "⚡" : "🔌"} {battStatus}
-              </span>
-              {powerDraw >= 0 && (
-                <span style={{ fontSize: "11px", color: JBL.textSecondary }}>
-                  {powerDraw.toFixed(1)}W draw
-                </span>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
+    <PanelSection title="❤️ System Health">
       <PanelSectionRow>
-        <ButtonItem layout="below" onClick={() => setAutoRefresh(!autoRefresh)}>
-          {autoRefresh ? "⏸ Pause Auto-Refresh" : "▶️ Resume Auto-Refresh"}
-        </ButtonItem>
+        <div style={{ width: "100%" }}>
+          <Bar label={`🔋 Battery (${data.battery_status})`} value={data.battery} max={100} unit="%" color={batColor} />
+          {data.est_minutes >= 0 && (
+            <div style={{ fontSize: "11px", color: "#aaa", textAlign: "right", marginTop: "-4px", marginBottom: "6px" }}>
+              ~{Math.floor(data.est_minutes / 60)}h {data.est_minutes % 60}m remaining
+            </div>
+          )}
+          <Bar label="🌡️ CPU Temp" value={data.cpu_temp} max={105} unit="°C" color={cpuColor} />
+          <Bar label="🎮 GPU Temp" value={data.gpu_temp} max={105} unit="°C" color={gpuColor} />
+          <Bar label="🌀 Fan" value={data.fan_rpm} max={5000} unit=" RPM" color="#1a9fff" />
+        </div>
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={refresh}>

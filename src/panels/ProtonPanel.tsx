@@ -1,231 +1,177 @@
+import React from "react";
+import { useState, useEffect, FC } from "react";
 import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
 } from "@decky/ui";
-import { callable } from "@decky/api";
-import { useState, useEffect } from "react";
-import { JBL, jblCard, jblCardGlow, jblHeader, jblHeaderTitle, jblHeaderSub, jblStatusBadge } from "../styles";
+import {
+  getProtonVersions,
+  fetchProtonReleases,
+  installProton,
+  removeProton,
+  scanProtonAdvisor,
+  applyProtonOverride,
+} from "../backend";
 
-interface InstalledVersion {
-  name: string;
-  path: string;
-  size_mb: number;
-}
+const TIER_COLORS: Record<string, string> = {
+  platinum: "#b4c7dc",
+  gold: "#cfb53b",
+  silver: "#c0c0c0",
+  bronze: "#cd7f32",
+  borked: "#ff4444",
+  unknown: "#888888",
+};
 
-interface Release {
-  tag: string;
-  name: string;
-  published: string;
-  download_url: string | null;
-  size_mb: number;
-}
-
-const getProtonVersions = callable<[], InstalledVersion[]>("get_proton_versions");
-const fetchProtonReleases = callable<[number], Release[]>("fetch_proton_releases");
-const installProton = callable<[string, string], { success: boolean; error?: string }>("install_proton");
-const removeProton = callable<[string], { success: boolean; error?: string }>("remove_proton");
-
-export const ProtonPanel = () => {
-  const [installed, setInstalled] = useState<InstalledVersion[]>([]);
-  const [releases, setReleases] = useState<Release[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+export const ProtonPanel: FC = () => {
+  const [tab, setTab] = useState<"installed" | "available" | "advisor">("installed");
+  const [installed, setInstalled] = useState<string[]>([]);
+  const [releases, setReleases] = useState<any[]>([]);
+  const [games, setGames] = useState<any[]>([]);
   const [status, setStatus] = useState("");
-  const [statusColor, setStatusColor] = useState(JBL.cyan);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const refresh = async () => {
-    setLoading(true);
-    setError("");
-    setStatus("Checking...");
-    setStatusColor(JBL.cyan);
+  const refreshInstalled = async () => {
     try {
       const raw = await getProtonVersions();
-      if (Array.isArray(raw)) {
-        const parsed: InstalledVersion[] = raw.map((v: any) => {
-          if (typeof v === "string") return { name: v, path: "", size_mb: 0 };
-          return { name: v.name || "Unknown", path: v.path || "", size_mb: v.size_mb || 0 };
-        });
-        setInstalled(parsed);
-      }
-      const rel = await fetchProtonReleases(5);
-      if (Array.isArray(rel)) setReleases(rel);
-      setStatus(`✅ Found ${Array.isArray(raw) ? raw.length : 0} installed`);
-      setStatusColor(JBL.green);
-    } catch (e: any) {
-      setError(e?.message || "Failed to fetch");
-      setStatus("❌ Error fetching versions");
-      setStatusColor(JBL.red);
+      setInstalled(JSON.parse(raw));
+    } catch {
+      setStatus("Failed to read Proton versions");
+    }
+  };
+
+  const refreshReleases = async () => {
+    setLoading(true);
+    try {
+      const raw = await fetchProtonReleases(5);
+      setReleases(JSON.parse(raw));
+    } catch {
+      setStatus("Failed to fetch releases");
     }
     setLoading(false);
   };
 
-  useEffect(() => { refresh(); }, []);
-
-  const doInstall = async (tag: string, url: string) => {
-    setInstalling(tag);
-    setStatus(`⬇️ Installing ${tag}...`);
-    setStatusColor(JBL.amber);
+  const refreshAdvisor = async () => {
+    setLoading(true);
+    setStatus("Scanning games...");
     try {
-      const res = await installProton(tag, url);
-      if (res.success) {
-        setStatus(`✅ Installed ${tag}`);
-        setStatusColor(JBL.green);
-        await refresh();
-      } else {
-        setStatus(`❌ ${res.error || "Install failed"}`);
-        setStatusColor(JBL.red);
-      }
+      const raw = await scanProtonAdvisor();
+      setGames(JSON.parse(raw));
+      setStatus(`Found ${JSON.parse(raw).length} games`);
     } catch {
-      setStatus("❌ Install failed");
-      setStatusColor(JBL.red);
+      setStatus("Scan failed");
     }
-    setInstalling(null);
+    setLoading(false);
   };
 
-  const doRemove = async (name: string) => {
-    setRemoving(name);
-    setStatus(`🗑️ Removing ${name}...`);
-    setStatusColor(JBL.amber);
+  useEffect(() => { refreshInstalled(); }, []);
+
+  const handleInstall = async (url: string, tag: string) => {
+    setLoading(true);
+    setStatus(`Installing ${tag}...`);
     try {
-      const res = await removeProton(name);
-      if (res.success) {
-        setStatus(`✅ Removed ${name}`);
-        setStatusColor(JBL.green);
-        await refresh();
-      } else {
-        setStatus(`❌ ${res.error || "Remove failed"}`);
-        setStatusColor(JBL.red);
-      }
+      const raw = await installProton(url, tag);
+      const r = JSON.parse(raw);
+      setStatus(r.message);
+      await refreshInstalled();
+      await refreshReleases();
     } catch {
-      setStatus("❌ Remove failed");
-      setStatusColor(JBL.red);
+      setStatus(`Install failed`);
     }
-    setRemoving(null);
+    setLoading(false);
   };
 
-  const isInstalled = (tag: string) => installed.some((v) => v.name.includes(tag) || tag.includes(v.name));
+  const handleRemove = async (name: string) => {
+    setStatus(`Removing ${name}...`);
+    try {
+      const raw = await removeProton(name);
+      const r = JSON.parse(raw);
+      setStatus(r.message);
+      await refreshInstalled();
+    } catch {
+      setStatus("Remove failed");
+    }
+  };
 
   return (
-    <div className="jbl-scroll-panel">
-      {/* Header */}
-      <div style={jblHeader}>
-        <div>
-          <div style={jblHeaderTitle}>🍷 Proton-GE Manager</div>
-          <div style={jblHeaderSub}>Install, update & manage Proton versions</div>
-        </div>
-      </div>
-
-      {status && <div style={jblStatusBadge(statusColor)}>{status}</div>}
-      {error && <div style={jblStatusBadge(JBL.red)}>⚠️ {error}</div>}
-
-      {/* Installed */}
-      <div style={jblCard}>
-        <div style={{ fontSize: "12px", color: JBL.textSecondary, marginBottom: "8px", fontWeight: 600 }}>
-          📦 INSTALLED ({installed.length})
-        </div>
-        {installed.length === 0 ? (
-          <div style={{ fontSize: "11px", color: JBL.textMuted, textAlign: "center" as const, padding: "12px" }}>
-            No Proton-GE versions found
+    <>
+      <PanelSection title="🍷 Proton Manager">
+        <PanelSectionRow>
+          <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+            <span
+              onClick={() => { setTab("installed"); refreshInstalled(); }}
+              style={{
+                cursor: "pointer", padding: "4px 12px", borderRadius: "4px",
+                background: tab === "installed" ? "#1a9fff" : "#333", color: "#fff", fontSize: "13px"
+              }}
+            >Installed</span>
+            <span
+              onClick={() => { setTab("available"); refreshReleases(); }}
+              style={{
+                cursor: "pointer", padding: "4px 12px", borderRadius: "4px",
+                background: tab === "available" ? "#1a9fff" : "#333", color: "#fff", fontSize: "13px"
+              }}
+            >Available</span>
+            <span
+              onClick={() => { setTab("advisor"); refreshAdvisor(); }}
+              style={{
+                cursor: "pointer", padding: "4px 12px", borderRadius: "4px",
+                background: tab === "advisor" ? "#1a9fff" : "#333", color: "#fff", fontSize: "13px"
+              }}
+            >Advisor</span>
           </div>
-        ) : (
-          installed.map((v) => (
-            <div key={v.name} style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "8px 10px",
-              marginBottom: "4px",
-              borderRadius: "8px",
-              background: JBL.surfaceDark,
-              border: `1px solid ${JBL.green}33`,
-            }}>
-              <div>
-                <div style={{ fontSize: "12px", fontWeight: 700, color: JBL.green }}>
-                  ✅ {v.name}
-                </div>
-                {v.size_mb > 0 && (
-                  <div style={{ fontSize: "9px", color: JBL.textMuted }}>{v.size_mb} MB</div>
-                )}
-              </div>
-              <PanelSection>
-                <ButtonItem
-                  layout="below"
-                  onClick={() => doRemove(v.name)}
-                  disabled={removing === v.name}
-                >
-                  {removing === v.name ? "Removing..." : "🗑️"}
-                </ButtonItem>
-              </PanelSection>
-            </div>
-          ))
-        )}
-      </div>
+        </PanelSectionRow>
 
-      {/* Available releases */}
-      <div style={jblCard}>
-        <div style={{ fontSize: "12px", color: JBL.textSecondary, marginBottom: "8px", fontWeight: 600 }}>
-          🌐 LATEST RELEASES
-        </div>
-        {releases.length === 0 ? (
-          <div style={{ fontSize: "11px", color: JBL.textMuted, textAlign: "center" as const, padding: "12px" }}>
-            {loading ? "Fetching releases..." : "No releases found"}
-          </div>
-        ) : (
-          releases.map((r) => {
-            const alreadyInstalled = isInstalled(r.tag);
-            return (
-              <div key={r.tag} style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 10px",
-                marginBottom: "4px",
-                borderRadius: "8px",
-                background: JBL.surfaceDark,
-                border: `1px solid ${alreadyInstalled ? JBL.green : JBL.cyan}33`,
-              }}>
-                <div>
-                  <div style={{
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    color: alreadyInstalled ? JBL.green : JBL.cyan,
-                  }}>
-                    {alreadyInstalled ? "✅" : "⬇️"} {r.tag}
-                  </div>
-                  <div style={{ fontSize: "9px", color: JBL.textMuted }}>
-                    {r.published} · {r.size_mb > 0 ? `${r.size_mb} MB` : ""}
-                  </div>
-                </div>
-                {!alreadyInstalled && r.download_url && (
-                  <PanelSection>
-                    <ButtonItem
-                      layout="below"
-                      onClick={() => doInstall(r.tag, r.download_url!)}
-                      disabled={installing === r.tag}
-                    >
-                      {installing === r.tag ? "Installing..." : "Install"}
-                    </ButtonItem>
-                  </PanelSection>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Refresh */}
-      <div style={jblCard}>
-        <PanelSection>
+        {status && (
           <PanelSectionRow>
-            <ButtonItem layout="below" onClick={refresh}>
-              {loading ? "⏳ Checking..." : "🔄 Refresh Versions"}
+            <div style={{ textAlign: "center", color: "#1a9fff", fontSize: "12px" }}>
+              {loading ? "⏳ " : ""}{status}
+            </div>
+          </PanelSectionRow>
+        )}
+
+        {tab === "installed" && installed.map((v) => (
+          <PanelSectionRow key={v}>
+            <ButtonItem layout="below" onClick={() => handleRemove(v)}>
+              🗑️ {v}
             </ButtonItem>
           </PanelSectionRow>
-        </PanelSection>
-      </div>
-    </div>
+        ))}
+
+        {tab === "installed" && installed.length === 0 && (
+          <PanelSectionRow>
+            <div style={{ textAlign: "center", color: "#888", fontSize: "12px" }}>
+              No Proton-GE versions installed
+            </div>
+          </PanelSectionRow>
+        )}
+
+        {tab === "available" && releases.map((r: any) => (
+          <PanelSectionRow key={r.tag}>
+            <ButtonItem
+              layout="below"
+              disabled={r.installed || loading}
+              onClick={() => handleInstall(r.url, r.tag)}
+            >
+              {r.installed ? "✅" : "⬇️"} {r.tag}
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
+
+        {tab === "advisor" && games.map((g: any) => (
+          <PanelSectionRow key={g.appid}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "4px 0" }}>
+              <span style={{ fontSize: "13px", flex: 1 }}>{g.name}</span>
+              <span style={{
+                color: TIER_COLORS[g.tier] || "#888",
+                fontWeight: "bold", fontSize: "12px", marginLeft: "8px"
+              }}>
+                {g.tier.toUpperCase()}
+              </span>
+            </div>
+          </PanelSectionRow>
+        ))}
+      </PanelSection>
+    </>
   );
 };

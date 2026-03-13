@@ -1,246 +1,170 @@
+import React from "react";
+import { useState, useEffect, FC } from "react";
 import {
   PanelSection,
   PanelSectionRow,
   ButtonItem,
   TextField,
 } from "@decky/ui";
-import { callable } from "@decky/api";
-import { useState, useEffect } from "react";
-import { JBL, jblCard, jblCardGlow, jblHeader, jblHeaderTitle, jblHeaderSub, jblStatusBadge } from "../styles";
+import {
+  listGameProfiles,
+  saveGameProfile,
+  applyGameProfile,
+  deleteGameProfile,
+  exportProfiles,
+  importProfiles,
+  getTdp,
+  getGpuClock,
+  getLsfg,
+} from "../backend";
 
-interface Profile {
-  name: string;
-  tdp: number;
-  gpu_clock: number;
-  lsfg_enabled: boolean;
-  lsfg_multiplier: number;
-  lsfg_flow_rate: number;
-}
-
-const listProfiles = callable<[], Profile[]>("list_profiles");
-const saveProfile = callable<[string], { success: boolean; error?: string }>("save_profile");
-const loadProfile = callable<[string], { success: boolean; error?: string }>("load_profile");
-const deleteProfile = callable<[string], { success: boolean; error?: string }>("delete_profile");
-
-export const ProfilesPanel = () => {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+export const ProfilesPanel: FC = () => {
+  const [profiles, setProfiles] = useState<Record<string, any>>({});
   const [newName, setNewName] = useState("");
   const [status, setStatus] = useState("");
-  const [statusColor, setStatusColor] = useState(JBL.cyan);
-  const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
-      const list = await listProfiles();
-      if (Array.isArray(list)) setProfiles(list);
+      const raw = await listGameProfiles();
+      setProfiles(JSON.parse(raw));
     } catch {
-      setStatus("❌ Failed to load profiles");
-      setStatusColor(JBL.red);
+      setStatus("Failed to load profiles");
     }
   };
 
   useEffect(() => { refresh(); }, []);
 
-  const doSave = async () => {
-    const name = newName.trim();
-    if (!name) {
-      setStatus("⚠️ Enter a profile name");
-      setStatusColor(JBL.amber);
+  const handleSave = async () => {
+    if (!newName.trim()) {
+      setStatus("Enter a profile name");
       return;
     }
-    setLoadingAction(`save-${name}`);
-    setStatus(`💾 Saving "${name}"...`);
-    setStatusColor(JBL.cyan);
     try {
-      const res = await saveProfile(name);
-      if (res.success) {
-        setStatus(`✅ Saved "${name}"`);
-        setStatusColor(JBL.green);
-        setNewName("");
-        await refresh();
-      } else {
-        setStatus(`❌ ${res.error || "Save failed"}`);
-        setStatusColor(JBL.red);
-      }
+      const tdp = await getTdp();
+      const gpu = await getGpuClock();
+      const lsfgRaw = await getLsfg();
+      const lsfg = JSON.parse(lsfgRaw);
+
+      const settings = JSON.stringify({
+        tdp,
+        gpu_clock: gpu,
+        lsfg_enabled: lsfg.enabled,
+        lsfg_multiplier: lsfg.multiplier,
+        lsfg_flow_rate: lsfg.flow_rate,
+      });
+
+      await saveGameProfile(newName.trim(), settings);
+      setNewName("");
+      setStatus(`Saved: ${newName.trim()}`);
+      await refresh();
     } catch {
-      setStatus("❌ Save failed");
-      setStatusColor(JBL.red);
+      setStatus("Save failed");
     }
-    setLoadingAction(null);
   };
 
-  const doLoad = async (name: string) => {
-    setLoadingAction(`load-${name}`);
-    setStatus(`📂 Loading "${name}"...`);
-    setStatusColor(JBL.cyan);
+  const handleApply = async (name: string) => {
     try {
-      const res = await loadProfile(name);
-      if (res.success) {
-        setStatus(`✅ Loaded "${name}"`);
-        setStatusColor(JBL.green);
-      } else {
-        setStatus(`❌ ${res.error || "Load failed"}`);
-        setStatusColor(JBL.red);
-      }
+      const raw = await applyGameProfile(name);
+      const r = JSON.parse(raw);
+      setStatus(r.message || `Applied: ${name}`);
     } catch {
-      setStatus("❌ Load failed");
-      setStatusColor(JBL.red);
+      setStatus("Apply failed");
     }
-    setLoadingAction(null);
   };
 
-  const doDelete = async (name: string) => {
-    setLoadingAction(`del-${name}`);
-    setStatus(`🗑️ Deleting "${name}"...`);
-    setStatusColor(JBL.amber);
+  const handleDelete = async (name: string) => {
+    await deleteGameProfile(name);
+    setStatus(`Deleted: ${name}`);
+    await refresh();
+  };
+
+  const handleExport = async () => {
     try {
-      const res = await deleteProfile(name);
-      if (res.success) {
-        setStatus(`✅ Deleted "${name}"`);
-        setStatusColor(JBL.green);
-        await refresh();
-      } else {
-        setStatus(`❌ ${res.error || "Delete failed"}`);
-        setStatusColor(JBL.red);
-      }
+      const raw = await exportProfiles();
+      const r = JSON.parse(raw);
+      setStatus(r.success ? `Exported ${r.count} profiles to ${r.path}` : "Export failed");
     } catch {
-      setStatus("❌ Delete failed");
-      setStatusColor(JBL.red);
+      setStatus("Export failed");
     }
-    setLoadingAction(null);
   };
 
-  const profileIcon = (p: Profile): string => {
-    if (p.tdp >= 20) return "🔥";
-    if (p.tdp >= 14) return "🚀";
-    if (p.tdp >= 8) return "⚖️";
-    return "🔋";
+  const handleImport = async () => {
+    try {
+      const raw = await importProfiles();
+      const r = JSON.parse(raw);
+      setStatus(r.success ? `Imported ${r.count} profiles` : r.message);
+      await refresh();
+    } catch {
+      setStatus("Import failed");
+    }
   };
 
-  const profileColor = (p: Profile): string => {
-    if (p.tdp >= 20) return JBL.red;
-    if (p.tdp >= 14) return JBL.amber;
-    if (p.tdp >= 8) return JBL.cyan;
-    return JBL.green;
-  };
+  const names = Object.keys(profiles);
 
   return (
-    <div className="jbl-scroll-panel">
-      {/* Header */}
-      <div style={jblHeader}>
-        <div>
-          <div style={jblHeaderTitle}>📋 Profiles</div>
-          <div style={jblHeaderSub}>Save & load power configurations</div>
-        </div>
-        <div style={{
-          marginLeft: "auto",
-          fontSize: "11px",
-          color: JBL.textMuted,
-        }}>
-          {profiles.length} saved
-        </div>
-      </div>
+    <>
+      <PanelSection title="💾 Save Current Settings">
+        <PanelSectionRow>
+          <TextField
+            label="Profile Name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={handleSave}>
+            💾 Save Profile
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
 
-      {status && <div style={jblStatusBadge(statusColor)}>{status}</div>}
-
-      {/* Save new */}
-      <div style={jblCardGlow(JBL.cyan)}>
-        <div style={{ fontSize: "12px", color: JBL.textSecondary, marginBottom: "8px", fontWeight: 600 }}>
-          ➕ SAVE CURRENT SETTINGS
-        </div>
-        <PanelSection>
+      <PanelSection title="📋 Saved Profiles">
+        {names.length === 0 && (
           <PanelSectionRow>
-            <TextField
-              label="Profile Name"
-              value={newName}
-              onChange={(e) => setNewName(e?.target?.value ?? "")}
-            />
-          </PanelSectionRow>
-          <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              onClick={doSave}
-              disabled={loadingAction?.startsWith("save") || false}
-            >
-              {loadingAction?.startsWith("save") ? "💾 Saving..." : "💾 Save Profile"}
-            </ButtonItem>
-          </PanelSectionRow>
-        </PanelSection>
-      </div>
-
-      {/* Profiles list */}
-      <div style={jblCard}>
-        <div style={{ fontSize: "12px", color: JBL.textSecondary, marginBottom: "8px", fontWeight: 600 }}>
-          📦 SAVED PROFILES ({profiles.length})
-        </div>
-        {profiles.length === 0 ? (
-          <div style={{ fontSize: "11px", color: JBL.textMuted, textAlign: "center" as const, padding: "16px" }}>
-            No profiles saved yet — save your first config above
-          </div>
-        ) : (
-          profiles.map((p) => (
-            <div key={p.name} style={{
-              padding: "10px 12px",
-              marginBottom: "6px",
-              borderRadius: "8px",
-              background: JBL.surfaceDark,
-              border: `1px solid ${profileColor(p)}33`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                <div style={{ fontSize: "13px", fontWeight: 700, color: profileColor(p) }}>
-                  {profileIcon(p)} {p.name}
-                </div>
-              </div>
-              {/* Stats row */}
-              <div style={{ display: "flex", gap: "12px", marginBottom: "8px", flexWrap: "wrap" as const }}>
-                <div style={{ fontSize: "10px", color: JBL.textMuted }}>
-                  TDP: <span style={{ color: JBL.textPrimary, fontWeight: 600 }}>{p.tdp}W</span>
-                </div>
-                <div style={{ fontSize: "10px", color: JBL.textMuted }}>
-                  GPU: <span style={{ color: JBL.textPrimary, fontWeight: 600 }}>{p.gpu_clock}MHz</span>
-                </div>
-                <div style={{ fontSize: "10px", color: JBL.textMuted }}>
-                  LSFG: <span style={{ color: p.lsfg_enabled ? JBL.green : JBL.textMuted, fontWeight: 600 }}>
-                    {p.lsfg_enabled ? `${p.lsfg_multiplier}x @ ${p.lsfg_flow_rate}%` : "OFF"}
-                  </span>
-                </div>
-              </div>
-              {/* Actions */}
-              <div style={{ display: "flex", gap: "6px" }}>
-                <PanelSection>
-                  <ButtonItem
-                    layout="below"
-                    onClick={() => doLoad(p.name)}
-                    disabled={loadingAction === `load-${p.name}`}
-                  >
-                    {loadingAction === `load-${p.name}` ? "Loading..." : "📂 Load"}
-                  </ButtonItem>
-                </PanelSection>
-                <PanelSection>
-                  <ButtonItem
-                    layout="below"
-                    onClick={() => doDelete(p.name)}
-                    disabled={loadingAction === `del-${p.name}`}
-                  >
-                    {loadingAction === `del-${p.name}` ? "..." : "🗑️"}
-                  </ButtonItem>
-                </PanelSection>
-              </div>
+            <div style={{ color: "#888", fontSize: "12px", textAlign: "center" }}>
+              No profiles saved yet
             </div>
-          ))
+          </PanelSectionRow>
         )}
-      </div>
+        {names.map((name) => (
+          <PanelSectionRow key={name}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+              <span style={{ fontSize: "13px", flex: 1 }}>{name}</span>
+              <span
+                onClick={() => handleApply(name)}
+                style={{ cursor: "pointer", color: "#1a9fff", marginRight: "12px", fontSize: "13px" }}
+              >▶ Apply</span>
+              <span
+                onClick={() => handleDelete(name)}
+                style={{ cursor: "pointer", color: "#ff4444", fontSize: "13px" }}
+              >🗑️</span>
+            </div>
+          </PanelSectionRow>
+        ))}
+      </PanelSection>
 
-      {/* Refresh */}
-      <div style={jblCard}>
+      <PanelSection title="📦 Import / Export">
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={handleExport}>
+            📤 Export to ~/jbl_profiles_export.json
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={handleImport}>
+            📥 Import from ~/jbl_profiles_export.json
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+
+      {status && (
         <PanelSection>
           <PanelSectionRow>
-            <ButtonItem layout="below" onClick={refresh}>
-              🔄 Refresh Profiles
-            </ButtonItem>
+            <div style={{ textAlign: "center", color: "#1a9fff", fontSize: "12px" }}>
+              {status}
+            </div>
           </PanelSectionRow>
         </PanelSection>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
