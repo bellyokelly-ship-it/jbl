@@ -29,3 +29,11 @@ export const scanProtonAdvisor = () => call<[], string>("scan_proton_advisor");
 
 export const getSettings = () => call<[], string>("get_settings");
 export const saveSettings = (settings: string) => call<[string], string>("save_settings", settings);
+
+// Auto-Optimise (Proton Advisor v2)
+export const protonScan = () => call<[], string>("jbl_proton_scan");
+export const protonApply = (appid: string, version: string, dryRun: boolean) =>
+  call<[string, string, boolean], string>("jbl_proton_apply", appid, version, dryRun);
+export const protonApplyAll = (recommendations: string, dryRun: boolean) =>
+  call<[string, boolean], string>("jbl_proton_apply_all", recommendations, dryRun);
+export const protonCurrentOverrides = () => call<[], string>("jbl_proton_overrides");

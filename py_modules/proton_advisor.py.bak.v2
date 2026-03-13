@@ -39,18 +39,7 @@ STEAMAPPS = STEAM_DIR / "steamapps"
 COMPAT_DIR = STEAMAPPS / "compatdata"
 CONFIG_VDF = STEAM_DIR / "config" / "config.vdf"
 PROTON_COMMON = STEAMAPPS / "common"
-GE_CANDIDATES = [
-    HOME / ".steam" / "root" / "compatibilitytools.d",
-    HOME / ".local/share/Steam/compatibilitytools.d",
-    STEAMAPPS / "compatibilitytools.d",
-]
-GE_DIR = None
-for _gp in GE_CANDIDATES:
-    if _gp.exists():
-        GE_DIR = _gp
-        break
-if GE_DIR is None:
-    GE_DIR = GE_CANDIDATES[0]
+GE_DIR = STEAMAPPS / "compatibilitytools.d"
 
 # JBL cache
 CACHE_DIR = HOME / "homebrew/plugins/jbl/cache"
@@ -266,56 +255,35 @@ def scan_installed_games() -> list:
 # ============================================================
 
 def get_current_proton_overrides() -> dict:
-    """
-    Parse config.vdf CompatToolMapping section.
-    Returns dict of appid -> proton_name.
-    Handles Valve's nested brace VDF format.
-    """
+    """Parse config.vdf to get per-game Proton version overrides."""
     overrides = {}
     try:
+        if not CONFIG_VDF.exists():
+            return overrides
+
         text = CONFIG_VDF.read_text(encoding="utf-8", errors="replace")
+
+        compat_match = re.search(
+            r'"CompatToolMapping"\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}',
+            text, re.DOTALL
+        )
+        if not compat_match:
+            return overrides
+
+        block = compat_match.group(1)
+        for app_match in re.finditer(
+            r'"(\d+)"\s*\{[^}]*"name"\s+"([^"]*)"',
+            block, re.DOTALL
+        ):
+            overrides[app_match.group(1)] = app_match.group(2)
+
     except Exception as e:
-        logger.error(f"Cannot read config.vdf: {e}")
-        return overrides
-    
-    # Find the CompatToolMapping section
-    compat_match = re.search(r'"CompatToolMapping"\s*\{', text)
-    if not compat_match:
-        logger.warning("No CompatToolMapping found in config.vdf")
-        return overrides
-    
-    # Parse from the opening brace, tracking depth
-    start = compat_match.end() - 1  # position of the opening {
-    depth = 0
-    section = ""
-    for i in range(start, len(text)):
-        ch = text[i]
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-            if depth == 0:
-                section = text[start+1:i]
-                break
-        section_char = ch
-    
-    if not section:
-        return overrides
-    
-    # Pattern: "appid" { "name" "proton_version" ... }
-    app_pattern = re.compile(
-        r'"(\d+)"\s*\{[^{}]*?"name"\s*"([^"]*)"[^{}]*?\}',
-        re.DOTALL
-    )
-    
-    for m in app_pattern.finditer(section):
-        appid = m.group(1)
-        name = m.group(2)
-        if name:  # skip empty overrides
-            overrides[appid] = name
-    
-    logger.info(f"Found {len(overrides)} compat overrides")
+        logger.error(f"Failed reading config.vdf: {e}")
     return overrides
+
+# ============================================================
+# INSTALLED PROTON VERSIONS
+# ============================================================
 
 def _parse_ge_version(name: str) -> tuple:
     """Parse GE-Proton version string for proper numeric sorting.
@@ -445,12 +413,6 @@ def determine_recommendation(game: GameInfo, protons: dict) -> tuple:
 
     latest_ge = protons["ge"][0] if protons["ge"] else None
     latest_official = protons["official"][0] if protons["official"] else "Proton Experimental"
-
-    # Stale GE check: if current GE version is not installed, recommend update
-    if "GE-Proton" in current and latest_ge and current != latest_ge:
-        ge_installed = set(protons.get("ge", []))
-        if current not in ge_installed:
-            return (latest_ge, "suggest")
 
     # Platinum: stock Proton is fine, GE is unnecessary overhead
     if tier == "platinum":
@@ -611,118 +573,6 @@ def restore_config_backup(backup_name: str = None) -> dict:
 # ============================================================
 # MAIN SCAN + ADVISE — the primary API call
 # ============================================================
-
-
-
-# ============================================================
-# APPLY PROTON OVERRIDE
-# ============================================================
-
-def apply_proton_override(appid: str, version: str) -> bool:
-    """
-    Write a Proton override for a single appid into Steam's config.vdf.
-    Returns True on success, False on failure.
-    
-    The CompatToolMapping lives at:
-    Software > Valve > Steam > CompatToolMapping > {appid} > name
-    """
-    config_vdf = HOME / ".local/share/Steam/config/config.vdf"
-    if not config_vdf.exists():
-        # Try alternate path
-        config_vdf = HOME / ".steam/steam/config/config.vdf"
-    if not config_vdf.exists():
-        return False
-
-    try:
-        with open(config_vdf, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-
-        # Find CompatToolMapping section
-        in_compat = False
-        compat_indent = 0
-        appid_found = False
-        in_appid_block = False
-        appid_indent = 0
-        name_replaced = False
-        insert_index = None
-        compat_close = None
-
-        i = 0
-        while i < len(lines):
-            stripped = lines[i].strip()
-
-            if '"CompatToolMapping"' in stripped and not in_compat:
-                in_compat = True
-                # Next line should be opening brace
-                compat_indent = len(lines[i]) - len(lines[i].lstrip())
-                i += 1
-                continue
-
-            if in_compat and not appid_found:
-                if f'"{appid}"' in stripped:
-                    appid_found = True
-                    in_appid_block = True
-                    appid_indent = len(lines[i]) - len(lines[i].lstrip())
-                    i += 1
-                    # Skip opening brace
-                    if i < len(lines) and lines[i].strip() == "{":
-                        i += 1
-                    continue
-                # Track where CompatToolMapping closes so we can insert before it
-                if stripped == "}" and not in_appid_block:
-                    compat_close = i
-
-            if in_appid_block:
-                if '"name"' in stripped:
-                    # Replace the name value
-                    indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-                    lines[i] = f'{indent}"name"\t\t"{version}"\n'
-                    name_replaced = True
-                elif '"Name"' in stripped:
-                    indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-                    lines[i] = f'{indent}"Name"\t\t"{version}"\n'
-                    name_replaced = True
-                elif stripped == "}":
-                    if not name_replaced:
-                        # Add name line before closing brace
-                        indent = "\t" * (appid_indent // 4 + 2) if appid_indent else "\t\t\t\t\t\t\t\t"
-                        lines.insert(i, f'{indent}"name"\t\t"{version}"\n')
-                        name_replaced = True
-                    in_appid_block = False
-                    break
-
-            i += 1
-
-        # If appid not found in CompatToolMapping, insert a new block
-        if in_compat and not appid_found and compat_close is not None:
-            indent_base = "\t" * 7
-            indent_inner = "\t" * 8
-            new_block = [
-                f'{indent_base}"{appid}"\n',
-                f'{indent_base}{{\n',
-                f'{indent_inner}"name"\t\t"{version}"\n',
-                f'{indent_inner}"config"\t\t""\n',
-                f'{indent_inner}"priority"\t\t"250"\n',
-                f'{indent_base}}}\n',
-            ]
-            for j, line in enumerate(new_block):
-                lines.insert(compat_close + j, line)
-            name_replaced = True
-
-        if not name_replaced:
-            return False
-
-        # Write back
-        with open(config_vdf, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-
-        return True
-
-    except Exception as e:
-        import logging
-        logging.getLogger("jbl.proton").error(f"apply_proton_override failed: {e}")
-        return False
-
 
 async def scan_and_advise() -> dict:
     """

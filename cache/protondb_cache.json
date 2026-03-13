@@ -1,0 +1,254 @@
+{
+  "pdb_1904480": {
+    "bestReportedTier": "platinum",
+    "confidence": "good",
+    "score": 0.79,
+    "tier": "platinum",
+    "total": 23,
+    "trendingTier": "platinum",
+    "_ts": 1773405971.3446283
+  },
+  "pdb_108710": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.83,
+    "tier": "platinum",
+    "total": 251,
+    "trendingTier": "platinum",
+    "_ts": 1773405971.9989643
+  },
+  "pdb_813230": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.78,
+    "tier": "platinum",
+    "total": 78,
+    "trendingTier": "platinum",
+    "_ts": 1773405972.387597
+  },
+  "pdb_1086940": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.83,
+    "tier": "gold",
+    "total": 1442,
+    "trendingTier": "platinum",
+    "_ts": 1773405972.7714975
+  },
+  "pdb_1569580": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.78,
+    "tier": "platinum",
+    "total": 85,
+    "trendingTier": "platinum",
+    "_ts": 1773405973.1562743
+  },
+  "pdb_1588550": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.72,
+    "tier": "gold",
+    "total": 64,
+    "trendingTier": "platinum",
+    "_ts": 1773405973.6799738
+  },
+  "pdb_870780": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.91,
+    "tier": "platinum",
+    "total": 471,
+    "trendingTier": "platinum",
+    "_ts": 1773405974.0692563
+  },
+  "pdb_1313140": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.93,
+    "tier": "platinum",
+    "total": 235,
+    "trendingTier": "platinum",
+    "_ts": 1773405974.4533448
+  },
+  "pdb_1091500": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.75,
+    "tier": "gold",
+    "total": 2521,
+    "trendingTier": "platinum",
+    "_ts": 1773405974.841287
+  },
+  "pdb_1868140": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.84,
+    "tier": "platinum",
+    "total": 139,
+    "trendingTier": "platinum",
+    "_ts": 1773405975.2193415
+  },
+  "pdb_588650": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.92,
+    "tier": "platinum",
+    "total": 142,
+    "trendingTier": "platinum",
+    "_ts": 1773405975.6064181
+  },
+  "pdb_632470": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.8,
+    "tier": "gold",
+    "total": 503,
+    "trendingTier": "platinum",
+    "_ts": 1773405975.9965591
+  },
+  "pdb_435150": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.76,
+    "tier": "gold",
+    "total": 639,
+    "trendingTier": "gold",
+    "_ts": 1773405976.3853211
+  },
+  "pdb_1562430": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.94,
+    "tier": "platinum",
+    "total": 133,
+    "trendingTier": "platinum",
+    "_ts": 1773405976.771252
+  },
+  "pdb_2725260": {
+    "bestReportedTier": "platinum",
+    "confidence": "good",
+    "score": 0.7,
+    "tier": "platinum",
+    "total": 20,
+    "trendingTier": "gold",
+    "_ts": 1773405977.1597319
+  },
+  "pdb_2377280": {
+    "bestReportedTier": "platinum",
+    "confidence": "good",
+    "score": 0.81,
+    "tier": "platinum",
+    "total": 16,
+    "trendingTier": "platinum",
+    "_ts": 1773405977.671019
+  },
+  "pdb_2057760": {
+    "bestReportedTier": "platinum",
+    "confidence": "moderate",
+    "score": 0.77,
+    "tier": "platinum",
+    "total": 13,
+    "trendingTier": "platinum",
+    "_ts": 1773405978.057788
+  },
+  "pdb_377160": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.78,
+    "tier": "gold",
+    "total": 868,
+    "trendingTier": "platinum",
+    "_ts": 1773405978.4572148
+  },
+  "pdb_1145350": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.87,
+    "tier": "platinum",
+    "total": 197,
+    "trendingTier": "platinum",
+    "_ts": 1773405978.8422122
+  },
+  "pdb_367520": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.92,
+    "tier": "platinum",
+    "total": 337,
+    "trendingTier": "platinum",
+    "_ts": 1773405979.227563
+  },
+  "pdb_1392860": {
+    "bestReportedTier": "platinum",
+    "confidence": "good",
+    "score": 0.7,
+    "tier": "platinum",
+    "total": 15,
+    "trendingTier": "gold",
+    "_ts": 1773405979.6127412
+  },
+  "pdb_1672810": {
+    "bestReportedTier": "platinum",
+    "confidence": "moderate",
+    "score": 0.65,
+    "tier": "platinum",
+    "total": 12,
+    "trendingTier": "platinum",
+    "_ts": 1773405980.0049732
+  },
+  "pdb_1809540": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.85,
+    "tier": "platinum",
+    "total": 71,
+    "trendingTier": "platinum",
+    "_ts": 1773405980.3979506
+  },
+  "pdb_418370": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.7,
+    "tier": "gold",
+    "total": 201,
+    "trendingTier": "platinum",
+    "_ts": 1773405980.7814648
+  },
+  "pdb_2361770": {
+    "bestReportedTier": "platinum",
+    "confidence": "moderate",
+    "score": 0.72,
+    "tier": "platinum",
+    "total": 10,
+    "trendingTier": "platinum",
+    "_ts": 1773405981.1806397
+  },
+  "pdb_1466060": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.83,
+    "tier": "platinum",
+    "total": 70,
+    "trendingTier": "platinum",
+    "_ts": 1773405981.5638103
+  },
+  "pdb_1601570": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.57,
+    "tier": "gold",
+    "total": 170,
+    "trendingTier": "gold",
+    "_ts": 1773405981.9507804
+  },
+  "pdb_250900": {
+    "bestReportedTier": "platinum",
+    "confidence": "strong",
+    "score": 0.86,
+    "tier": "platinum",
+    "total": 378,
+    "trendingTier": "platinum",
+    "_ts": 1773405982.3367674
+  }
+}

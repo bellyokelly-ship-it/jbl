@@ -6,6 +6,10 @@ import glob
 import re
 import urllib.request
 
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "py_modules"))
+from proton_advisor import scan_and_advise, apply_proton_override, get_current_proton_overrides
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("JBL")
 
@@ -473,6 +477,80 @@ class Plugin:
             data = json.loads(settings) if isinstance(settings, str) else settings
             _save_json(SETTINGS_PATH, data)
             return _ok("Settings saved")
+        except Exception as e:
+            return _err(str(e))
+
+
+    # ─── AUTO-OPTIMISE (Proton Advisor) ──────────────────────────
+
+    async def jbl_proton_scan(self):
+        """Full scan: detect games, fetch ProtonDB, generate recommendations."""
+        try:
+            result = await scan_and_advise()
+            return _ok(result)
+        except Exception as e:
+            logger.error(f"Proton scan failed: {e}")
+            return _err(str(e))
+
+    async def jbl_proton_apply(self, appid: str, version: str, dry_run: bool = False):
+        """Apply a single Proton override for a game."""
+        try:
+            if dry_run:
+                return _ok({
+                    "dry_run": True,
+                    "appid": appid,
+                    "version": version,
+                    "message": f"Would set {appid} to {version}"
+                })
+            result = apply_proton_override(appid, version)
+            if result:
+                return _ok({
+                    "applied": True,
+                    "appid": appid,
+                    "version": version
+                })
+            return _err(f"Failed to apply override for {appid}")
+        except Exception as e:
+            logger.error(f"Proton apply failed: {e}")
+            return _err(str(e))
+
+    async def jbl_proton_apply_all(self, changes: str, dry_run: bool = False):
+        """Apply multiple Proton overrides at once.
+        changes: JSON string of [{"appid": "123", "version": "GE-Proton10-32"}, ...]
+        """
+        try:
+            items = json.loads(changes) if isinstance(changes, str) else changes
+            results = []
+            for item in items:
+                appid = item["appid"]
+                version = item["version"]
+                if dry_run:
+                    results.append({
+                        "appid": appid, "version": version,
+                        "dry_run": True, "applied": False
+                    })
+                else:
+                    ok = apply_proton_override(appid, version)
+                    results.append({
+                        "appid": appid, "version": version,
+                        "applied": ok
+                    })
+            applied = sum(1 for r in results if r.get("applied"))
+            return _ok({
+                "dry_run": dry_run,
+                "total": len(results),
+                "applied": applied,
+                "results": results
+            })
+        except Exception as e:
+            logger.error(f"Proton apply_all failed: {e}")
+            return _err(str(e))
+
+    async def jbl_proton_overrides(self):
+        """Get current Proton overrides from config.vdf."""
+        try:
+            overrides = get_current_proton_overrides()
+            return _ok(overrides)
         except Exception as e:
             return _err(str(e))
 
