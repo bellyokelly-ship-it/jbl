@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   PanelSection,
   PanelSectionRow,
@@ -6,12 +6,13 @@ import {
   ToggleField,
 } from "@decky/ui";
 import { getLsfg, setLsfg } from "../backend";
-import { success, fail, info } from "../toast";
+import { success, fail } from "../toast";
 
 const LSFGPanel: React.FC = () => {
   const [enabled, setEnabled] = useState(false);
   const [multiplier, setMultiplier] = useState(2);
   const [flowRate, setFlowRate] = useState(50);
+  const applyTimer = useRef<any>(null);
 
   useEffect(() => {
     (async () => {
@@ -26,26 +27,29 @@ const LSFGPanel: React.FC = () => {
     })();
   }, []);
 
-  const apply = async (en: boolean, mul: number, flow: number) => {
-    try {
-      const r = JSON.parse(await setLsfg(en, mul, flow));
-      if (r.ok) {
-        const d = r.value;
-        const conf = d.confirmed ? "✓ confirmed" : "⚠ check config";
-        success(`LSFG ${en ? "ON" : "OFF"} — ${mul}x @ ${flow}% ${conf}`);
-      } else {
-        fail(`LSFG: ${r.error}`);
-      }
-    } catch (e) { fail(`LSFG error: ${e}`); }
-  };
+  const applyDebounced = useCallback((en: boolean, mul: number, flow: number) => {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    applyTimer.current = setTimeout(async () => {
+      try {
+        const r = JSON.parse(await setLsfg(en, mul, flow));
+        if (r.ok) {
+          success(`LSFG ${en ? "ON" : "OFF"} — ${mul}x @ ${flow}% ${r.value.confirmed ? "✓" : ""}`);
+        } else { fail(`LSFG: ${r.error}`); }
+      } catch (e) { fail(`LSFG error: ${e}`); }
+    }, 500);
+  }, []);
 
   return (
     <PanelSection title="🎞 LSFG Frame Gen">
       <PanelSectionRow>
         <ToggleField
           label="Enable LSFG-VK"
+          description={enabled ? "Active — changes apply on next game launch" : "Disabled"}
           checked={enabled}
-          onChange={(v) => { setEnabled(v); apply(v, multiplier, flowRate); }}
+          onChange={(v) => {
+            setEnabled(v);
+            applyDebounced(v, multiplier, flowRate);
+          }}
         />
       </PanelSectionRow>
       <PanelSectionRow>
@@ -55,7 +59,10 @@ const LSFGPanel: React.FC = () => {
           min={1}
           max={4}
           step={1}
-          onChange={(v) => { setMultiplier(v); if (enabled) apply(enabled, v, flowRate); }}
+          onChange={(v) => {
+            setMultiplier(v);
+            if (enabled) applyDebounced(enabled, v, flowRate);
+          }}
         />
       </PanelSectionRow>
       <PanelSectionRow>
@@ -64,13 +71,16 @@ const LSFGPanel: React.FC = () => {
           value={flowRate}
           min={10}
           max={100}
-          step={10}
-          onChange={(v) => { setFlowRate(v); if (enabled) apply(enabled, multiplier, v); }}
+          step={5}
+          onChange={(v) => {
+            setFlowRate(v);
+            if (enabled) applyDebounced(enabled, multiplier, v);
+          }}
         />
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ fontSize: 11, color: "#888", padding: "4px 0" }}>
-          Writes to ~/.config/lsfg-vk/lsfg_vk.conf — changes apply on next game launch
+          Reads/writes ~/.config/lsfg-vk/lsfg_vk.conf directly
         </div>
       </PanelSectionRow>
     </PanelSection>

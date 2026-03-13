@@ -3,19 +3,27 @@ import json
 import subprocess
 import logging
 import glob
+import re
+import urllib.request
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("JBL")
 
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
-PROFILES_PATH = os.path.join(os.path.dirname(__file__), "profiles.json")
-PROTON_GE_DIR = os.path.expanduser("~/.steam/root/compatibilitytools.d")
-LSFG_CONF = os.path.expanduser("~/.config/lsfg-vk/lsfg_vk.conf")
+HOME = "/home/deck"
+PLUGIN_DIR = os.path.dirname(os.path.realpath(__file__))
+SETTINGS_PATH = os.path.join(PLUGIN_DIR, "settings.json")
+PROFILES_PATH = os.path.join(PLUGIN_DIR, "profiles.json")
+PROTON_GE_DIR = os.path.join(HOME, ".steam/root/compatibilitytools.d")
+LSFG_CONF = os.path.join(HOME, ".config/lsfg-vk/lsfg_vk.conf")
 STEAMAPPS_PATHS = [
-    os.path.expanduser("~/.local/share/Steam/steamapps"),
-    os.path.expanduser("~/.steam/steam/steamapps"),
-    os.path.expanduser("~/.steam/root/steamapps"),
+    os.path.join(HOME, ".local/share/Steam/steamapps"),
+    os.path.join(HOME, ".steam/steam/steamapps"),
 ]
+TDP_PATH = "/sys/class/hwmon/hwmon5/power1_cap"
+GPU_OD_PATH = "/sys/class/drm/card0/device/pp_od_clk_voltage"
+GPU_DPM_PATH = "/sys/class/drm/card0/device/pp_dpm_sclk"
+GPU_LEVEL_PATH = "/sys/class/drm/card0/device/power_dpm_force_performance_level"
+
 
 def _ok(value=None):
     return json.dumps({"ok": True, "value": value})
@@ -25,10 +33,10 @@ def _err(msg):
 
 def _run(cmd):
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         return r.stdout.strip()
     except Exception as e:
-        logger.error(f"Command failed: {cmd} -> {e}")
+        logger.error(f"Cmd fail: {cmd} -> {e}")
         return ""
 
 def _read(path):
@@ -38,6 +46,15 @@ def _read(path):
     except:
         return ""
 
+def _write(path, data):
+    try:
+        with open(path, "w") as f:
+            f.write(str(data))
+        return True
+    except Exception as e:
+        logger.error(f"Write fail {path}: {e}")
+        return False
+
 def _load_json(path, default):
     try:
         with open(path, "r") as f:
@@ -46,50 +63,80 @@ def _load_json(path, default):
         return default
 
 def _save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except:
+        return False
 
 def _get_settings():
     return _load_json(SETTINGS_PATH, {
         "default_tdp": 15, "default_gpu_clock": 1600,
-        "lsfg_enabled": False, "lsfg_multiplier": 2, "lsfg_flow_rate": 50,
-        "notifications_enabled": True, "auto_optimise": False
+        "lsfg_enabled": False, "lsfg_multiplier": 2, "lsfg_flow_rate": 50
     })
 
-def _save_settings(s):
-    _save_json(SETTINGS_PATH, s)
 
-def _get_profiles():
-    return _load_json(PROFILES_PATH, {})
+# ─── GAME SCANNING ───────────────────────────────────────────────
 
-def _save_profiles(p):
-    _save_json(PROFILES_PATH, p)
+def _scan_all_games():
+    games = []
+    seen = set()
+    for sp in STEAMAPPS_PATHS:
+        if not os.path.isdir(sp):
+            logger.info(f"Steamapps not found: {sp}")
+            continue
+        for acf in glob.glob(os.path.join(sp, "appmanifest_*.acf")):
+            try:
+                with open(acf, "r") as f:
+                    content = f.read()
+                appid_m = re.search(r'"appid"\s+"(\d+)"', content)
+                name_m = re.search(r'"name"\s+"([^"]+)"', content)
+                if appid_m and name_m:
+                    appid = appid_m.group(1)
+                    name = name_m.group(1)
+                    if appid not in seen:
+                        seen.add(appid)
+                        games.append({"appid": appid, "name": name})
+            except Exception as e:
+                logger.error(f"ACF parse fail {acf}: {e}")
+    games.sort(key=lambda g: g["name"].lower())
+    logger.info(f"Scanned {len(games)} games from {len(STEAMAPPS_PATHS)} paths")
+    return games
+
+
+# ─── LSFG CONFIG ─────────────────────────────────────────────────
 
 def _read_lsfg_conf():
-    """Read the LSFG-VK config file"""
-    conf = {"enabled": False, "multiplier": 2, "flow_rate": 50}
+    """Read LSFG-VK config from the real config file"""
+    defaults = {"enabled": False, "multiplier": 2, "flow_rate": 50}
     try:
-        if os.path.exists(LSFG_CONF):
-            for line in _read(LSFG_CONF).split("\n"):
+        if not os.path.exists(LSFG_CONF):
+            return defaults
+        with open(LSFG_CONF, "r") as f:
+            for line in f:
                 line = line.strip()
                 if "=" not in line or line.startswith("#"):
                     continue
                 k, v = line.split("=", 1)
-                k, v = k.strip(), v.strip()
+                k = k.strip().lower()
+                v = v.strip()
                 if k == "enabled":
-                    conf["enabled"] = v == "1" or v.lower() == "true"
+                    defaults["enabled"] = v in ("1", "true", "True")
                 elif k == "multiplier":
-                    conf["multiplier"] = int(v)
+                    defaults["multiplier"] = int(v)
                 elif k == "flow_scale":
-                    conf["flow_rate"] = int(float(v) * 100)
+                    defaults["flow_rate"] = int(float(v) * 100)
                 elif k == "flow_rate":
-                    pass  # we use flow_scale as the real value
+                    # Some configs use integer flow_rate
+                    defaults["flow_rate"] = int(v)
+        return defaults
     except Exception as e:
-        logger.error(f"Error reading LSFG conf: {e}")
-    return conf
+        logger.error(f"LSFG conf read fail: {e}")
+        return defaults
 
 def _write_lsfg_conf(enabled, multiplier, flow_rate):
-    """Write the LSFG-VK config file"""
+    """Write LSFG-VK config back to the real config file"""
     try:
         os.makedirs(os.path.dirname(LSFG_CONF), exist_ok=True)
         flow_scale = round(flow_rate / 100.0, 2)
@@ -99,386 +146,340 @@ def _write_lsfg_conf(enabled, multiplier, flow_rate):
             f.write(f"enabled={'1' if enabled else '0'}\n")
             f.write(f"frame_multiplier={'True' if enabled else 'False'}\n")
             f.write(f"flow_rate={multiplier}\n")
-        logger.info(f"LSFG conf written: enabled={enabled}, mul={multiplier}, flow={flow_rate}%")
-        return True
+        # Verify write
+        verify = _read_lsfg_conf()
+        return verify
     except Exception as e:
-        logger.error(f"Error writing LSFG conf: {e}")
-        return False
+        logger.error(f"LSFG conf write fail: {e}")
+        return None
 
-def _read_tdp():
-    """Read back actual TDP from sysfs"""
+
+# ─── PROTON-GE ───────────────────────────────────────────────────
+
+def _get_installed_proton():
+    if not os.path.isdir(PROTON_GE_DIR):
+        return []
+    versions = []
+    for d in sorted(os.listdir(PROTON_GE_DIR), reverse=True):
+        fp = os.path.join(PROTON_GE_DIR, d)
+        if os.path.isdir(fp):
+            versions.append({"name": d})
+    return versions
+
+def _fetch_github_releases(count=20):
+    """Fetch Proton-GE releases from GitHub API"""
     try:
-        raw = _run("cat /sys/class/hwmon/hwmon*/power1_cap 2>/dev/null | head -1")
-        if raw and raw.isdigit():
-            return int(int(raw) / 1000000)
-    except:
-        pass
-    return -1
+        url = f"https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page={count}"
+        req = urllib.request.Request(url, headers={"User-Agent": "JBL-Decky/1.3"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        releases = []
+        for rel in data:
+            tag = rel.get("tag_name", "")
+            date = rel.get("published_at", "")[:10]
+            notes = rel.get("body", "")[:200]
+            tar_url = ""
+            size_mb = 0
+            for asset in rel.get("assets", []):
+                if asset["name"].endswith(".tar.gz"):
+                    tar_url = asset["browser_download_url"]
+                    size_mb = round(asset.get("size", 0) / 1048576, 1)
+                    break
+            if tar_url:
+                releases.append({
+                    "tag": tag, "url": tar_url,
+                    "size_mb": size_mb, "date": date, "notes": notes
+                })
+        return releases
+    except Exception as e:
+        logger.error(f"GitHub fetch fail: {e}")
+        return []
 
-def _read_gpu_clock():
-    """Read back actual GPU clock from sysfs"""
-    try:
-        for card in ["card0", "card1"]:
-            raw = _run(f"cat /sys/class/drm/{card}/device/pp_dpm_sclk 2>/dev/null")
-            if raw:
-                for line in raw.split("\n"):
-                    if "*" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            mhz = parts[1].replace("Mhz", "").replace("MHz", "")
-                            if mhz.isdigit():
-                                return int(mhz)
-    except:
-        pass
-    return -1
 
-def _scan_all_games():
-    """Scan all steamapps paths for installed games"""
-    games = []
-    seen = set()
-    for base in STEAMAPPS_PATHS:
-        if not os.path.isdir(base):
-            continue
-        for acf in glob.glob(os.path.join(base, "appmanifest_*.acf")):
-            try:
-                content = _read(acf)
-                appid = name = ""
-                for line in content.split("\n"):
-                    stripped = line.strip()
-                    if '"appid"' in stripped:
-                        appid = stripped.split('"')[-2]
-                    elif '"name"' in stripped:
-                        name = stripped.split('"')[-2]
-                if appid and name and appid not in seen:
-                    seen.add(appid)
-                    games.append({"appid": appid, "name": name})
-            except:
-                continue
-    games.sort(key=lambda g: g["name"].lower())
-    return games
-
+# ═══════════════════════════════════════════════════════════════════
+# PLUGIN CLASS
+# ═══════════════════════════════════════════════════════════════════
 
 class Plugin:
 
-    # ─── Power ──────────────────────────────────────────────────
+    # ─── POWER ────────────────────────────────────────────────────
+
     async def get_tdp(self):
         try:
-            watts = _read_tdp()
-            if watts < 0:
-                return _err("Cannot read TDP")
-            return _ok(watts)
+            raw = _read(TDP_PATH)
+            if raw:
+                watts = int(raw) // 1000000
+                return _ok(watts)
+            return _err("Cannot read TDP")
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def set_tdp(self, watts: int):
         try:
-            microwatts = int(watts) * 1000000
-            _run(f"echo {microwatts} | tee /sys/class/hwmon/hwmon*/power1_cap 2>/dev/null")
-            # Read back to validate
-            actual = _read_tdp()
-            if actual == int(watts):
-                logger.info(f"TDP set to {watts}W ✓ (verified)")
-                return _ok({"requested": int(watts), "actual": actual, "verified": True})
-            else:
-                logger.warning(f"TDP set requested {watts}W but read back {actual}W")
-                return _ok({"requested": int(watts), "actual": actual, "verified": False})
+            micro = watts * 1000000
+            _write(TDP_PATH, micro)
+            # Read back to verify
+            actual_raw = _read(TDP_PATH)
+            actual = int(actual_raw) // 1000000 if actual_raw else 0
+            verified = abs(actual - watts) <= 1
+            return _ok({
+                "requested": watts, "actual": actual,
+                "verified": verified
+            })
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def get_gpu_clock(self):
         try:
-            mhz = _read_gpu_clock()
-            if mhz < 0:
-                return _ok(1600)
-            return _ok(mhz)
+            dpm = _read(GPU_DPM_PATH)
+            if dpm:
+                # Find active frequency (marked with *)
+                for line in dpm.split("\n"):
+                    if "*" in line:
+                        m = re.search(r"(\d+)Mhz", line)
+                        if m:
+                            return _ok(int(m.group(1)))
+            return _ok(1600)
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def set_gpu_clock(self, mhz: int):
         try:
-            for card in ["card0", "card1"]:
-                path = f"/sys/class/drm/{card}/device/pp_od_clk_voltage"
-                if os.path.exists(path):
-                    _run(f"echo 's 1 {mhz}' | tee {path} 2>/dev/null")
-                    _run(f"echo 'c' | tee {path} 2>/dev/null")
-            actual = _read_gpu_clock()
-            logger.info(f"GPU clock set to {mhz}MHz, current active: {actual}MHz")
-            return _ok({"requested": int(mhz), "actual": actual})
+            # Set manual performance level
+            _write(GPU_LEVEL_PATH, "manual")
+            # Write OD sclk
+            _write(GPU_OD_PATH, f"s 0 {mhz}")
+            _write(GPU_OD_PATH, f"s 1 {mhz}")
+            _write(GPU_OD_PATH, "c")
+            # Read back DPM to see active
+            dpm = _read(GPU_DPM_PATH)
+            actual = mhz
+            if dpm:
+                for line in dpm.split("\n"):
+                    if "*" in line:
+                        m = re.search(r"(\d+)Mhz", line)
+                        if m:
+                            actual = int(m.group(1))
+            return _ok({"requested": mhz, "actual": actual})
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def get_power_limits(self):
-        return _ok({"tdp_min": 3, "tdp_max": 30, "gpu_min": 200, "gpu_max": 1600})
+        try:
+            tdp_raw = _read(TDP_PATH)
+            tdp = int(tdp_raw) // 1000000 if tdp_raw else 15
+            dpm = _read(GPU_DPM_PATH)
+            gpu = 1600
+            if dpm:
+                for line in dpm.split("\n"):
+                    if "*" in line:
+                        m = re.search(r"(\d+)Mhz", line)
+                        if m:
+                            gpu = int(m.group(1))
+            return _ok({"tdp": tdp, "gpu": gpu})
+        except Exception as e:
+            return _err(str(e))
 
     async def apply_power_preset(self, preset: str):
-        try:
-            presets = {
-                "silent":      {"tdp": 5,  "gpu": 400},
-                "balanced":    {"tdp": 12, "gpu": 1100},
-                "performance": {"tdp": 20, "gpu": 1400},
-                "max":         {"tdp": 30, "gpu": 1600},
-            }
-            p = presets.get(preset.lower(), presets["balanced"])
-            tdp_result = await self.set_tdp(p["tdp"])
-            gpu_result = await self.set_gpu_clock(p["gpu"])
-            tdp_data = json.loads(tdp_result)
-            gpu_data = json.loads(gpu_result)
-            return _ok({
-                "preset": preset,
-                "tdp": p["tdp"],
-                "gpu": p["gpu"],
-                "tdp_verified": tdp_data.get("value", {}).get("verified", False) if tdp_data.get("ok") else False,
-                "tdp_actual": tdp_data.get("value", {}).get("actual", p["tdp"]) if tdp_data.get("ok") else p["tdp"],
-                "gpu_actual": gpu_data.get("value", {}).get("actual", p["gpu"]) if gpu_data.get("ok") else p["gpu"],
-            })
-        except Exception as e:
-            return _err(e)
+        presets = {
+            "silent":      {"tdp": 5,  "gpu": 400},
+            "balanced":    {"tdp": 12, "gpu": 1100},
+            "performance": {"tdp": 20, "gpu": 1400},
+            "max":         {"tdp": 30, "gpu": 1600},
+        }
+        if preset not in presets:
+            return _err(f"Unknown preset: {preset}")
+        p = presets[preset]
+        # Apply TDP
+        tdp_r = json.loads(await self.set_tdp(p["tdp"]))
+        # Apply GPU
+        gpu_r = json.loads(await self.set_gpu_clock(p["gpu"]))
+        tdp_actual = tdp_r["value"]["actual"] if tdp_r.get("ok") else p["tdp"]
+        tdp_verified = tdp_r["value"]["verified"] if tdp_r.get("ok") else False
+        gpu_actual = gpu_r["value"]["actual"] if gpu_r.get("ok") else p["gpu"]
+        return _ok({
+            "preset": preset, "tdp": p["tdp"], "gpu": p["gpu"],
+            "tdp_actual": tdp_actual, "tdp_verified": tdp_verified,
+            "gpu_actual": gpu_actual
+        })
 
-    # ─── LSFG ───────────────────────────────────────────────────
+    # ─── LSFG ─────────────────────────────────────────────────────
+
     async def get_lsfg(self):
         try:
             conf = _read_lsfg_conf()
             return _ok(conf)
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    async def set_lsfg(self, enabled: bool, multiplier: int = 2, flow_rate: int = 50):
+    async def set_lsfg(self, enabled: bool, multiplier: int, flow_rate: int):
         try:
-            s = _get_settings()
-            s["lsfg_enabled"] = enabled
-            s["lsfg_multiplier"] = multiplier
-            s["lsfg_flow_rate"] = flow_rate
-            _save_settings(s)
-            success = _write_lsfg_conf(enabled, multiplier, flow_rate)
-            if success:
-                # Read back to confirm
-                readback = _read_lsfg_conf()
-                return _ok({
-                    "enabled": enabled,
-                    "multiplier": multiplier,
-                    "flow_rate": flow_rate,
-                    "confirmed": readback["enabled"] == enabled and readback["multiplier"] == multiplier
-                })
+            result = _write_lsfg_conf(enabled, multiplier, flow_rate)
+            if result:
+                return _ok({"enabled": enabled, "multiplier": multiplier,
+                            "flow_rate": flow_rate, "confirmed": True})
             return _err("Failed to write LSFG config")
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    # ─── Health ─────────────────────────────────────────────────
+    # ─── HEALTH ───────────────────────────────────────────────────
+
     async def get_health(self):
         try:
-            bat_cap = _read("/sys/class/power_supply/BAT1/capacity") or _read("/sys/class/power_supply/BAT0/capacity") or "0"
-            bat_stat = _read("/sys/class/power_supply/BAT1/status") or _read("/sys/class/power_supply/BAT0/status") or "Unknown"
+            bat_cap = _read("/sys/class/power_supply/BAT1/capacity")
+            bat_status = _read("/sys/class/power_supply/BAT1/status")
+            bat_health = ""
+            energy_full = _read("/sys/class/power_supply/BAT1/energy_full")
+            energy_design = _read("/sys/class/power_supply/BAT1/energy_full_design")
+            if energy_full and energy_design:
+                pct = round(int(energy_full) / int(energy_design) * 100, 1)
+                bat_health = f"{pct}%"
 
-            cpu_temp = 0
-            for p in glob.glob("/sys/class/hwmon/hwmon*/temp1_input"):
-                raw = _read(p)
-                if raw and raw.isdigit():
-                    cpu_temp = int(int(raw) / 1000)
+            # CPU temp
+            cpu_temp = ""
+            for hwmon in glob.glob("/sys/class/hwmon/hwmon*/temp1_input"):
+                raw = _read(hwmon)
+                if raw:
+                    t = int(raw) // 1000
+                    if 20 < t < 110:
+                        cpu_temp = f"{t}°C"
+                        break
+
+            # Fan
+            fan = ""
+            for hwmon in glob.glob("/sys/class/hwmon/hwmon*/fan1_input"):
+                raw = _read(hwmon)
+                if raw:
+                    fan = f"{raw} RPM"
                     break
 
-            gpu_temp = 0
-            for p in glob.glob("/sys/class/hwmon/hwmon*/temp2_input"):
-                raw = _read(p)
-                if raw and raw.isdigit():
-                    gpu_temp = int(int(raw) / 1000)
-                    break
-            if gpu_temp == 0:
-                gpu_temp = cpu_temp
-
-            fan = 0
-            for p in glob.glob("/sys/class/hwmon/hwmon*/fan1_input"):
-                raw = _read(p)
-                if raw and raw.isdigit():
-                    fan = int(raw)
-                    break
-
-            power_now = 0
-            for p in glob.glob("/sys/class/power_supply/BAT*/power_now"):
-                raw = _read(p)
-                if raw and raw.isdigit() and int(raw) > 0:
-                    power_now = int(raw)
-                    break
-
-            energy_now = 0
-            for p in glob.glob("/sys/class/power_supply/BAT*/energy_now"):
-                raw = _read(p)
-                if raw and raw.isdigit() and int(raw) > 0:
-                    energy_now = int(raw)
-                    break
-
-            bat_time = "N/A"
-            if power_now > 0 and bat_stat.lower() == "discharging":
-                mins = int((energy_now / power_now) * 60)
-                bat_time = f"{mins // 60}h {mins % 60}m"
-
-            bat_health = "Good"
-            energy_full = 0
-            energy_full_design = 0
-            for p in glob.glob("/sys/class/power_supply/BAT*/energy_full"):
-                raw = _read(p)
-                if raw and raw.isdigit():
-                    energy_full = int(raw)
-                    break
-            for p in glob.glob("/sys/class/power_supply/BAT*/energy_full_design"):
-                raw = _read(p)
-                if raw and raw.isdigit():
-                    energy_full_design = int(raw)
-                    break
-            if energy_full_design > 0:
-                health_pct = int((energy_full / energy_full_design) * 100)
-                bat_health = f"{health_pct}%"
-
-            # Also include current TDP for cross-reference
-            current_tdp = _read_tdp()
-            current_gpu = _read_gpu_clock()
+            # Estimate battery time
+            power_now = _read("/sys/class/power_supply/BAT1/power_now")
+            energy_now = _read("/sys/class/power_supply/BAT1/energy_now")
+            est_time = ""
+            if power_now and energy_now and int(power_now) > 0 and bat_status == "Discharging":
+                hours = int(energy_now) / int(power_now)
+                mins = int(hours * 60)
+                est_time = f"{mins // 60}h {mins % 60}m"
 
             return _ok({
-                "cpu_temp": cpu_temp,
-                "gpu_temp": gpu_temp,
-                "fan_rpm": fan,
-                "battery_pct": int(bat_cap) if bat_cap.isdigit() else 0,
-                "battery_health": bat_health,
-                "battery_time": bat_time,
-                "current_tdp": current_tdp,
-                "current_gpu": current_gpu
+                "battery_pct": bat_cap + "%" if bat_cap else "N/A",
+                "battery_status": bat_status or "Unknown",
+                "battery_health": bat_health or "N/A",
+                "battery_time": est_time or "N/A",
+                "cpu_temp": cpu_temp or "N/A",
+                "fan_rpm": fan or "N/A"
             })
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    # ─── Proton-GE ──────────────────────────────────────────────
+    # ─── PROTON ───────────────────────────────────────────────────
+
     async def get_proton_versions(self):
         try:
-            versions = []
-            if os.path.isdir(PROTON_GE_DIR):
-                for d in sorted(os.listdir(PROTON_GE_DIR), reverse=True):
-                    if os.path.isdir(os.path.join(PROTON_GE_DIR, d)):
-                        versions.append({"name": d})
-            return _ok(versions)
+            return _ok(_get_installed_proton())
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def fetch_proton_releases(self, count: int = 20):
         try:
-            raw = _run(f'curl -s "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page={count}"')
-            releases = json.loads(raw)
-            results = []
-            for r in releases:
-                tag = r.get("tag_name", "")
-                url = ""
-                size = 0
-                for a in r.get("assets", []):
-                    if a.get("name", "").endswith(".tar.gz"):
-                        url = a.get("browser_download_url", "")
-                        size = a.get("size", 0)
-                        break
-                if tag and url:
-                    results.append({
-                        "tag": tag,
-                        "url": url,
-                        "size_mb": round(size / 1048576) if size else 0,
-                        "date": r.get("published_at", "")[:10],
-                        "notes": r.get("body", "")[:200]
-                    })
-            return _ok(results)
+            releases = _fetch_github_releases(count)
+            return _ok(releases)
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def install_proton(self, url: str, tag: str):
         try:
             os.makedirs(PROTON_GE_DIR, exist_ok=True)
-            dest = os.path.join(PROTON_GE_DIR, tag)
-            if os.path.isdir(dest):
-                return _ok(f"{tag} already installed")
-            tmp = f"/tmp/{tag}.tar.gz"
-            _run(f'curl -L -o {tmp} "{url}"')
-            if os.path.exists(tmp):
-                _run(f'tar -xzf {tmp} -C {PROTON_GE_DIR}')
-                _run(f'rm -f {tmp}')
-                if os.path.isdir(dest):
-                    return _ok(f"{tag} installed")
-            return _err(f"Failed to install {tag}")
+            tar_path = f"/tmp/{tag}.tar.gz"
+            logger.info(f"Downloading {url}")
+            urllib.request.urlretrieve(url, tar_path)
+            logger.info(f"Extracting to {PROTON_GE_DIR}")
+            _run(f"tar -xzf {tar_path} -C {PROTON_GE_DIR}")
+            os.remove(tar_path)
+            return _ok(f"Installed {tag}")
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def remove_proton(self, name: str):
         try:
             target = os.path.join(PROTON_GE_DIR, name)
             if os.path.isdir(target):
-                _run(f'rm -rf "{target}"')
-                return _ok(f"{name} removed")
-            return _err(f"{name} not found")
+                import shutil
+                shutil.rmtree(target)
+                return _ok(f"Removed {name}")
+            return _err(f"Not found: {name}")
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    # ─── Game Scan (for Profiles + Auto) ────────────────────────
+    # ─── GAMES / PROFILES ────────────────────────────────────────
+
     async def scan_games(self):
         try:
             games = _scan_all_games()
-            logger.info(f"Scanned {len(games)} installed games")
             return _ok(games)
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    # ─── Profiles ───────────────────────────────────────────────
-    async def list_game_profiles(self):
-        try:
-            profiles = _get_profiles()
-            return _ok(list(profiles.keys()))
-        except Exception as e:
-            return _err(e)
-
-    async def get_game_profile(self, name: str):
-        try:
-            profiles = _get_profiles()
-            if name in profiles:
-                return _ok(profiles[name])
-            return _err(f"Profile '{name}' not found")
-        except Exception as e:
-            return _err(e)
-
-    async def save_game_profile(self, name: str, settings: str):
-        try:
-            profiles = _get_profiles()
-            profiles[name] = json.loads(settings) if isinstance(settings, str) else settings
-            _save_profiles(profiles)
-            logger.info(f"Profile saved: {name}")
-            return _ok(name)
-        except Exception as e:
-            return _err(e)
-
-    async def delete_game_profile(self, name: str):
-        try:
-            profiles = _get_profiles()
-            if name in profiles:
-                del profiles[name]
-                _save_profiles(profiles)
-                return _ok(name)
-            return _err(f"{name} not found")
-        except Exception as e:
-            return _err(e)
-
-    # Keep legacy method for backward compat
     async def scan_proton_advisor(self):
         return await self.scan_games()
 
-    # ─── Settings ───────────────────────────────────────────────
+    async def list_game_profiles(self):
+        try:
+            profiles = _load_json(PROFILES_PATH, {})
+            return _ok(list(profiles.keys()))
+        except Exception as e:
+            return _err(str(e))
+
+    async def get_game_profile(self, name: str):
+        try:
+            profiles = _load_json(PROFILES_PATH, {})
+            if name in profiles:
+                return _ok(profiles[name])
+            return _err(f"Profile not found: {name}")
+        except Exception as e:
+            return _err(str(e))
+
+    async def save_game_profile(self, name: str, settings: str):
+        try:
+            profiles = _load_json(PROFILES_PATH, {})
+            profiles[name] = json.loads(settings) if isinstance(settings, str) else settings
+            _save_json(PROFILES_PATH, profiles)
+            return _ok(f"Saved profile: {name}")
+        except Exception as e:
+            return _err(str(e))
+
+    async def delete_game_profile(self, name: str):
+        try:
+            profiles = _load_json(PROFILES_PATH, {})
+            if name in profiles:
+                del profiles[name]
+                _save_json(PROFILES_PATH, profiles)
+                return _ok(f"Deleted: {name}")
+            return _err(f"Not found: {name}")
+        except Exception as e:
+            return _err(str(e))
+
+    # ─── SETTINGS ─────────────────────────────────────────────────
+
     async def get_settings(self):
         try:
             return _ok(_get_settings())
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
     async def save_settings(self, settings: str):
         try:
-            s = json.loads(settings) if isinstance(settings, str) else settings
-            _save_settings(s)
-            return _ok(True)
+            data = json.loads(settings) if isinstance(settings, str) else settings
+            _save_json(SETTINGS_PATH, data)
+            return _ok("Settings saved")
         except Exception as e:
-            return _err(e)
+            return _err(str(e))
 
-    # ─── Lifecycle ──────────────────────────────────────────────
+    # ─── LIFECYCLE ────────────────────────────────────────────────
+
     async def _main(self):
-        logger.info("JBL Plugin loaded")
+        logger.info("JBL Phase 1.3 loaded")
 
     async def _unload(self):
-        logger.info("JBL unloading")
+        logger.info("JBL unloaded")

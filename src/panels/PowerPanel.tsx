@@ -1,25 +1,26 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   PanelSection,
   PanelSectionRow,
   SliderField,
   ButtonItem,
-  Focusable,
 } from "@decky/ui";
 import { getTdp, setTdp, getGpuClock, setGpuClock, applyPowerPreset } from "../backend";
-import { success, fail, info } from "../toast";
+import { success, fail } from "../toast";
 
 const PRESETS = [
-  { key: "silent",      label: "🔇 Silent",      tdp: 5,  gpu: 400  },
-  { key: "balanced",    label: "⚖️ Balanced",    tdp: 12, gpu: 1100 },
-  { key: "performance", label: "🚀 Performance", tdp: 20, gpu: 1400 },
-  { key: "max",         label: "💥 Max",          tdp: 30, gpu: 1600 },
+  { key: "silent",      label: "🔇 Silent (5W/400MHz)" },
+  { key: "balanced",    label: "⚖️ Balanced (12W/1100MHz)" },
+  { key: "performance", label: "🚀 Performance (20W/1400MHz)" },
+  { key: "max",         label: "💥 Max (30W/1600MHz)" },
 ];
 
 const PowerPanel: React.FC = () => {
   const [tdp, setTdpVal] = useState(15);
   const [gpu, setGpuVal] = useState(1600);
   const [activePreset, setActivePreset] = useState("");
+  const tdpTimer = useRef<any>(null);
+  const gpuTimer = useRef<any>(null);
 
   const load = async () => {
     try {
@@ -32,32 +33,35 @@ const PowerPanel: React.FC = () => {
 
   useEffect(() => { load(); }, []);
 
-  const handleTdp = async (v: number) => {
+  // Debounced TDP - only apply after 500ms of no changes
+  const handleTdp = useCallback((v: number) => {
     setTdpVal(v);
     setActivePreset("");
-    try {
-      const r = JSON.parse(await setTdp(v));
-      if (r.ok) {
-        const d = r.value;
-        if (d.verified) {
-          success(`TDP → ${d.actual}W ✓`);
-        } else {
-          info(`TDP requested ${d.requested}W, actual ${d.actual}W`);
-        }
-      } else { fail(`TDP: ${r.error}`); }
-    } catch (e) { fail(`TDP error: ${e}`); }
-  };
+    if (tdpTimer.current) clearTimeout(tdpTimer.current);
+    tdpTimer.current = setTimeout(async () => {
+      try {
+        const r = JSON.parse(await setTdp(v));
+        if (r.ok) {
+          success(`TDP → ${r.value.actual}W ${r.value.verified ? "✓" : ""}`);
+        } else { fail(`TDP: ${r.error}`); }
+      } catch (e) { fail(`TDP error: ${e}`); }
+    }, 500);
+  }, []);
 
-  const handleGpu = async (v: number) => {
+  // Debounced GPU - only apply after 500ms of no changes
+  const handleGpu = useCallback((v: number) => {
     setGpuVal(v);
     setActivePreset("");
-    try {
-      const r = JSON.parse(await setGpuClock(v));
-      if (r.ok) {
-        success(`GPU → ${r.value.requested}MHz (active: ${r.value.actual}MHz)`);
-      } else { fail(`GPU: ${r.error}`); }
-    } catch (e) { fail(`GPU error: ${e}`); }
-  };
+    if (gpuTimer.current) clearTimeout(gpuTimer.current);
+    gpuTimer.current = setTimeout(async () => {
+      try {
+        const r = JSON.parse(await setGpuClock(v));
+        if (r.ok) {
+          success(`GPU → ${r.value.actual}MHz`);
+        } else { fail(`GPU: ${r.error}`); }
+      } catch (e) { fail(`GPU error: ${e}`); }
+    }, 500);
+  }, []);
 
   const handlePreset = async (key: string) => {
     setActivePreset(key);
@@ -67,8 +71,7 @@ const PowerPanel: React.FC = () => {
         const d = r.value;
         setTdpVal(d.tdp);
         setGpuVal(d.gpu);
-        const verify = d.tdp_verified ? "✓ verified" : `(actual: ${d.tdp_actual}W)`;
-        success(`${key.toUpperCase()}: ${d.tdp}W / ${d.gpu}MHz ${verify}`);
+        success(`${key.toUpperCase()}: ${d.tdp_actual}W / ${d.gpu_actual}MHz ${d.tdp_verified ? "✓" : ""}`);
       } else { fail(`Preset: ${r.error}`); }
     } catch (e) { fail(`Preset error: ${e}`); }
   };
@@ -109,31 +112,21 @@ const PowerPanel: React.FC = () => {
       </PanelSection>
 
       <PanelSection title="Quick Presets">
-        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {PRESETS.map((p) => (
-            <Focusable
-              key={p.key}
-              focusWithin={false}
-              onActivate={() => handlePreset(p.key)}
-              style={{
-                flex: "1 1 45%",
-                padding: "10px 6px",
-                textAlign: "center",
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: activePreset === p.key ? "bold" : "normal",
-                background: activePreset === p.key
-                  ? "linear-gradient(135deg, #00d4aa, #0088ff)"
-                  : "#1a1a2e",
-                color: activePreset === p.key ? "#000" : "#ccc",
-                border: activePreset === p.key ? "2px solid #00d4aa" : "1px solid #333",
-                cursor: "pointer",
-              }}
+        {PRESETS.map((p) => (
+          <PanelSectionRow key={p.key}>
+            <ButtonItem
+              layout="below"
+              onClick={() => handlePreset(p.key)}
+              description={activePreset === p.key ? "✓ Active" : ""}
+              style={activePreset === p.key ? {
+                background: "linear-gradient(135deg, #00d4aa22, #0088ff22)",
+                borderLeft: "3px solid #00d4aa"
+              } : {}}
             >
               {p.label}
-            </Focusable>
-          ))}
-        </Focusable>
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
       </PanelSection>
     </>
   );
