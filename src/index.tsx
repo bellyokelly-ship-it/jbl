@@ -14,6 +14,7 @@ import ProtonPanel from "./panels/ProtonPanel";
 import HealthPanel from "./panels/HealthPanel";
 import ProfilesPanel from "./panels/ProfilesPanel";
 import AutoOptimisePanel from "./panels/AutoOptimisePanel";
+import { PlayModePanel } from "./panels/PlayModePanel";
 
 const TABS = [
   { id: "power",    label: "⚡ Power" },
@@ -22,6 +23,7 @@ const TABS = [
   { id: "health",   label: "🌡 Health" },
   { id: "profiles", label: "💾 Profiles" },
   { id: "auto",     label: "🤖 Auto" },
+  { id: "playmode", label: "🔌 Mode" },
 ];
 
 const Content: React.FC = () => {
@@ -35,6 +37,7 @@ const Content: React.FC = () => {
       case "health":   return <HealthPanel />;
       case "profiles": return <ProfilesPanel />;
       case "auto":     return <AutoOptimisePanel />;
+      case "playmode": return <PlayModePanel />;
       default:         return <PowerPanel />;
     }
   };
@@ -46,7 +49,7 @@ const Content: React.FC = () => {
           flow-children="horizontal"
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: "6px",
             padding: "4px 0",
           }}
@@ -58,8 +61,12 @@ const Content: React.FC = () => {
               onClick={() => setTab(t.id)}
               style={{
                 minWidth: 0,
-                padding: "8px 4px",
+                height: "36px",
+                maxHeight: "36px",
+                padding: "0 4px",
                 fontSize: "11px",
+                lineHeight: "36px",
+                overflow: "hidden",
                 textAlign: "center",
                 background: tab === t.id
                   ? "linear-gradient(135deg, #00d4aa, #0088ff)"
@@ -78,7 +85,7 @@ const Content: React.FC = () => {
       <PanelSection>
         <PanelSectionRow>
           <div style={{ textAlign: "center", color: "#444", fontSize: 10, marginTop: 8 }}>
-            JBL v0.5.0 — Jimmy\'s Big Load
+            JBL v0.6.0 — Jimmy's Big Load
           </div>
         </PanelSectionRow>
       </PanelSection>
@@ -88,7 +95,7 @@ const Content: React.FC = () => {
 
 export default definePlugin(() => ({
   name: "JBL",
-  title: <div className={staticClasses.Title}>Jimmy\'s Big Load</div>,
+  title: <div className={staticClasses.Title}>Jimmy's Big Load</div>,
   content: <Content />,
   icon: <FaRocket />,
 }));

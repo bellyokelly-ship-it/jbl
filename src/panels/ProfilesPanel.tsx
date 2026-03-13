@@ -13,118 +13,101 @@ import { success, fail, info } from "../toast";
 
 interface Game { appid: string; name: string; }
 
+const parse = (v: any) => typeof v === "string" ? JSON.parse(v) : v;
+
 const ProfilesPanel: React.FC = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [profiles, setProfiles] = useState<string[]>([]);
-  const [selectedGame, setSelectedGame] = useState<string>("");
-  const [loading, setLoading] = useState(false);
+  const [sel, setSel] = useState<string>("");
+  const [ready, setReady] = useState(false);
 
   const load = async () => {
-    setLoading(true);
     try {
-      const gr = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await scanGames());
+      const gr = parse(await scanGames());
       if (gr.ok) setGames(gr.value);
-
-      const pr = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await listGameProfiles());
+      const pr = parse(await listGameProfiles());
       if (pr.ok) setProfiles(pr.value);
     } catch {}
-    setLoading(false);
+    setReady(true);
   };
 
   useEffect(() => { load(); }, []);
 
-  const saveCurrentAsProfile = async () => {
-    if (!selectedGame) { fail("Select a game first"); return; }
+  const save = async () => {
+    if (!sel) { fail("Select a game"); return; }
     try {
-      const tdpR = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getTdp());
-      const gpuR = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getGpuClock());
-      const lsfgR = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await getLsfg());
-
-      const settings = {
-        tdp: tdpR.ok ? tdpR.value : 15,
-        gpu: gpuR.ok ? gpuR.value : 1600,
-        lsfg: lsfgR.ok ? lsfgR.value : { enabled: false, multiplier: 2, flow_rate: 50 },
-        saved_at: new Date().toISOString(),
-      };
-
-      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await saveGameProfile(selectedGame, JSON.stringify(settings)));
-      if (r.ok) {
-        success(`Profile saved for ${selectedGame}`);
-        await load();
-      } else { fail(r.error); }
-    } catch (e) { fail(`Save error: ${e}`); }
+      const t = parse(await getTdp());
+      const g = parse(await getGpuClock());
+      const l = parse(await getLsfg());
+      const r = parse(await saveGameProfile(sel, {
+        tdp: t.ok ? t.value : 12,
+        gpu_clock: g.ok ? g.value : 1100,
+        lsfg_enabled: l.ok ? l.value.enabled : false,
+        lsfg_multiplier: l.ok ? l.value.multiplier : 2,
+        lsfg_flow: l.ok ? l.value.flow : 50,
+      }));
+      if (r.ok) { success("Saved"); load(); } else fail(r.error);
+    } catch (e: any) { fail(e.message); }
   };
 
-  const handleDelete = async (name: string) => {
-    try {
-      const r = ((v) => typeof v === "string" ? JSON.parse(v) : v)(await deleteGameProfile(name));
-      r.ok ? success(`Deleted: ${name}`) : fail(r.error);
-      await load();
-    } catch (e) { fail(`Delete error: ${e}`); }
+  const del = async (n: string) => {
+    try { const r = parse(await deleteGameProfile(n)); if (r.ok) { success("Deleted"); load(); } } catch {}
   };
 
-  const gameOptions = games.map((g) => ({
-    label: `${g.name} (${g.appid})`,
-    data: `${g.name} (${g.appid})`,
-  }));
+  if (!ready) return (
+    <PanelSection title="💾 Profiles">
+      <PanelSectionRow>
+        <div style={{ color: "#0af", fontSize: 12 }}>Loading...</div>
+      </PanelSectionRow>
+    </PanelSection>
+  );
 
   return (
-    <>
-      <PanelSection title={`💾 Game Profiles (${games.length} games found)`}>
-        {loading ? (
+    <PanelSection title="💾 Profiles">
+      {games.length > 0 ? (
+        <>
           <PanelSectionRow>
-            <div style={{ color: "#0af", fontSize: 12 }}>Scanning games...</div>
+            <DropdownItem
+              label="Game"
+              rgOptions={games.map(g => ({ data: g.appid, label: g.name }))}
+              selectedOption={sel}
+              onChange={(o) => setSel(o.data)}
+            />
           </PanelSectionRow>
-        ) : games.length === 0 ? (
           <PanelSectionRow>
-            <div style={{ color: "#f88", fontSize: 12 }}>No games found — check steamapps path</div>
+            <ButtonItem layout="below" onClick={save}>💾 Save Current</ButtonItem>
           </PanelSectionRow>
-        ) : (
-          <>
-            <PanelSectionRow>
-              <DropdownItem
-                label="Select Game"
-                rgOptions={gameOptions}
-                selectedOption={selectedGame}
-                onChange={(opt) => setSelectedGame(opt.data)}
-              />
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={saveCurrentAsProfile}>
-                💾 Save Current Settings to Profile
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        )}
-      </PanelSection>
-
-      <PanelSection title={`📋 Saved Profiles (${profiles.length})`}>
-        {profiles.length === 0 && (
-          <PanelSectionRow>
-            <div style={{ color: "#888", fontSize: 12 }}>No profiles saved yet</div>
-          </PanelSectionRow>
-        )}
-        {profiles.map((name) => (
-          <PanelSectionRow key={name}>
-            <ButtonItem
-              layout="below"
-              onClick={() => handleDelete(name)}
-              description="Tap to delete"
-            >
-              📄 {name}
-            </ButtonItem>
-          </PanelSectionRow>
-        ))}
-      </PanelSection>
-
-      <PanelSection>
+        </>
+      ) : (
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={load}>
-            🔄 Rescan Games
+          <div style={{ color: "#f88", fontSize: 12 }}>No games found</div>
+        </PanelSectionRow>
+      )}
+      {profiles.map((n) => (
+        <PanelSectionRow key={n}>
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              getGameProfile(n).then(r => {
+                const p = parse(r);
+                if (p.ok) info(`${n}\nTDP:${p.value.tdp}W GPU:${p.value.gpu_clock}MHz`);
+              });
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12 }}>{n}</span>
+              <span
+                style={{ color: "#f66", fontSize: 10 }}
+                onClick={(e) => { e.stopPropagation(); del(n); }}
+              >✕</span>
+            </div>
           </ButtonItem>
         </PanelSectionRow>
-      </PanelSection>
-    </>
+      ))}
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={load}>🔄 Refresh</ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>
   );
 };
 

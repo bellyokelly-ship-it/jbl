@@ -215,6 +215,14 @@ def _fetch_github_releases(count=20):
 
 
 # ═══════════════════════════════════════════════════════════════════
+
+# PlayMode detection
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "src", "lib"))
+from playmode import PlayModeDetector, MODE_PROFILES as PlayModeProfiles, PlayMode
+from user_profiles import get_merged_profile as merge_profile, set_override, set_global_override, get_all_overrides, reset_mode as reset_mode_overrides, reset_all as reset_all_overrides
+_playmode = PlayModeDetector()
+
 # PLUGIN CLASS
 # ═══════════════════════════════════════════════════════════════════
 
@@ -233,6 +241,10 @@ class Plugin:
             return _err(str(e))
 
     async def set_tdp(self, watts: int):
+        # Auto-save override for current mode
+        if hasattr(self, "_current_mode") and self._current_mode:
+            set_override(self._current_mode, "tdp", watts)
+            logger.info(f"Override saved: {self._current_mode}.tdp = {watts}")
         try:
             micro = watts * 1000000
             _write(TDP_PATH, micro)
@@ -262,6 +274,10 @@ class Plugin:
             return _err(str(e))
 
     async def set_gpu_clock(self, mhz: int):
+        # Auto-save override for current mode
+        if hasattr(self, "_current_mode") and self._current_mode:
+            set_override(self._current_mode, "gpu_clock", mhz)
+            logger.info(f"Override saved: {self._current_mode}.gpu_clock = {mhz}")
         try:
             # Set manual performance level
             _write(GPU_LEVEL_PATH, "manual")
@@ -331,6 +347,12 @@ class Plugin:
             return _err(str(e))
 
     async def set_lsfg(self, enabled: bool, multiplier: int, flow_rate: int):
+        # Auto-save override for current mode
+        if hasattr(self, "_current_mode") and self._current_mode:
+            set_override(self._current_mode, "lsfg_enabled", enabled)
+            set_override(self._current_mode, "lsfg_multiplier", multiplier)
+            set_override(self._current_mode, "lsfg_flow", flow_rate)
+            logger.info(f"Override saved: {self._current_mode}.lsfg = {enabled}/{multiplier}/{flow_rate}")
         try:
             result = _write_lsfg_conf(enabled, multiplier, flow_rate)
             if result:
@@ -573,7 +595,182 @@ class Plugin:
 
     # ─── LIFECYCLE ────────────────────────────────────────────────
 
+
+    # ─── PLAYMODE ─────────────────────────────────────────────────
+
+    async def jbl_playmode_detect(self):
+        """Auto-detect current play mode from connected displays."""
+        try:
+            _det = _playmode.detect()
+            mode = _det["mode"]
+            device = _det.get("xr_model") or _det.get("external_device")
+            profile = PlayModeProfiles.get(mode)
+            return json.dumps({"ok": True, "value": {
+                "mode": mode,
+                "device": device,
+                "profile": profile,
+            }})
+        except Exception as e:
+            logger.error(f"PlayMode detect error: {e}")
+            return json.dumps({"ok": False, "error": str(e)})
+
+    async def jbl_playmode_apply(self, mode: str = ""):
+        """Apply a PlayMode profile. Empty mode = auto-detect."""
+        try:
+            if not mode:
+                _det = _playmode.detect()
+                mode = _det["mode"]
+            base_profile = PlayModeProfiles.get(mode)
+            if not base_profile:
+                return json.dumps({"ok": False, "error": f"Unknown mode: {mode}"})
+            profile = merge_profile(mode, base_profile)
+            self._current_mode = mode
+            logger.info(f"PlayMode merge: base={base_profile} -> merged={profile}")
+
+            results = {}
+
+            # ── TDP ──
+            if "tdp" in profile and profile["tdp"] > 0:
+                tdp_uw = profile["tdp"] * 1000000
+                _write(TDP_PATH, str(tdp_uw))
+                results["tdp"] = f"{profile['tdp']}W"
+            elif "tdp" in profile and profile["tdp"] == 0:
+                # Uncapped — write max TDP (30W for Deck OLED)
+                _write(TDP_PATH, str(30 * 1000000))
+                results["tdp"] = "uncapped (30W)"
+
+            # ── GPU Clock ──
+            if "gpu_clock" in profile:
+                try:
+                    _write(GPU_LEVEL_PATH, "manual")
+                    _write(GPU_OD_PATH, f"s 0 {profile['gpu_clock']}")
+                    _write(GPU_OD_PATH, f"s 1 {profile['gpu_clock']}")
+                    _write(GPU_OD_PATH, "c")
+                    results["gpu_clock"] = f"{profile['gpu_clock']}MHz"
+                except Exception as e:
+                    results["gpu_clock"] = f"error: {e}"
+
+            # ── Refresh Rate ──
+            if "refresh_rate" in profile:
+                try:
+                    import subprocess
+                    subprocess.run(
+                        ["xrandr", "--output", "eDP", "--rate", str(profile["refresh_rate"])],
+                        capture_output=True, timeout=5
+                    )
+                    results["refresh_rate"] = f"{profile['refresh_rate']}Hz"
+                except Exception as e:
+                    results["refresh_rate"] = f"error: {e}"
+
+            # ── Frame Limit (store in settings for MangoHud) ──
+            if "frame_limit" in profile:
+                settings = _get_settings()
+                settings["fps_limit"] = profile["frame_limit"]
+                _save_json(SETTINGS_PATH, settings)
+                results["frame_limit"] = profile["frame_limit"]
+
+            # ── FSR ──
+            if "fsr" in profile:
+                settings = _get_settings()
+                settings["fsr_enabled"] = profile["fsr"]
+                if "fsr_sharpness" in profile:
+                    settings["fsr_sharpness"] = profile["fsr_sharpness"]
+                _save_json(SETTINGS_PATH, settings)
+                results["fsr"] = profile["fsr"]
+
+            # ── LSFG ──
+            if "lsfg_enabled" in profile:
+                try:
+                    lsfg_result = _write_lsfg_conf(
+                        profile["lsfg_enabled"],
+                        profile.get("lsfg_multiplier", 2),
+                        profile.get("lsfg_flow", 50)
+                    )
+                    results["lsfg"] = {
+                        "enabled": profile["lsfg_enabled"],
+                        "multiplier": profile.get("lsfg_multiplier", 2),
+                        "flow": profile.get("lsfg_flow", 50),
+                    }
+                except Exception as e:
+                    results["lsfg"] = f"error: {e}"
+
+            # ── Fan Profile ──
+            if "fan_profile" in profile:
+                settings = _get_settings()
+                settings["fan_profile"] = profile["fan_profile"]
+                _save_json(SETTINGS_PATH, settings)
+                results["fan_profile"] = profile["fan_profile"]
+
+            # ── External Resolution (XR / Docked only) ──
+            if "force_resolution" in profile and profile["force_resolution"] and mode != PlayMode.HANDHELD:
+                try:
+                    import subprocess
+                    connectors = _playmode.get_connectors()
+                    for c in connectors:
+                        if c["status"] == "connected" and c["name"] not in _playmode.INTERNAL_CONNECTORS:
+                            res = profile["force_resolution"]
+                            hz = profile.get("refresh_rate", 60)
+                            subprocess.run(
+                                ["xrandr", "--output", c["name"], "--mode", res, "--rate", str(hz)],
+                                capture_output=True, timeout=5
+                            )
+                            results["output_res"] = f"{res}@{hz}Hz on {c['name']}"
+                            break
+                except Exception as e:
+                    results["output_res"] = f"error: {e}"
+
+            logger.info(f"PlayMode applied: {mode} -> {results}")
+            return json.dumps({"ok": True, "value": {"mode": mode, "applied": results}})
+
+        except Exception as e:
+            logger.error(f"PlayMode apply error: {e}")
+            return json.dumps({"ok": False, "error": str(e)})
+
+    async def jbl_playmode_get_profiles(self):
+        """Return all PlayMode profiles."""
+        try:
+            return json.dumps({"ok": True, "value": PlayModeProfiles})
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)})
+
+
+    async def jbl_profile_get(self, mode: str):
+        """Get merged profile for a mode (base + overrides)."""
+        from src.lib.playmode import PlayMode, MODE_PROFILES
+        mode_map = {"handheld": PlayMode.HANDHELD, "xr": PlayMode.XR, "docked": PlayMode.DOCKED}
+        play_mode = mode_map.get(mode)
+        if not play_mode:
+            return {"status": "error", "error": f"Unknown mode: {mode}"}
+        base = MODE_PROFILES.get(play_mode, {})
+        merged = get_merged_profile(mode, base)
+        return {"status": "ok", "mode": mode, "profile": merged}
+
+    async def jbl_profile_set(self, mode: str, key: str, value):
+        """Set a per-mode override."""
+        set_override(mode, key, value)
+        return {"status": "ok", "mode": mode, "key": key, "value": value}
+
+    async def jbl_profile_set_global(self, key: str, value):
+        """Set a global override."""
+        set_global_override(key, value)
+        return {"status": "ok", "key": key, "value": value}
+
+    async def jbl_profile_reset(self, mode: str):
+        """Reset all overrides for a mode."""
+        reset_mode(mode)
+        return {"status": "ok", "mode": mode}
+
+    async def jbl_profile_reset_all(self):
+        """Reset all user overrides."""
+        reset_all()
+        return {"status": "ok"}
+
+    async def jbl_profile_get_overrides(self):
+        """Get all user overrides."""
+        return {"status": "ok", "overrides": get_all_overrides()}
+
     async def _main(self):
+        self._current_mode = None
         """Runs on plugin load — fix ownership Decky forces to root."""
         import subprocess
         plugin_dir = os.path.dirname(os.path.realpath(__file__))
@@ -583,3 +780,4 @@ class Plugin:
 
     async def _unload(self):
         logger.info("JBL unloaded")
+
